@@ -251,16 +251,12 @@ def get_graph_token():
     if "user_code" not in flow:
         raise RuntimeError("Fallo iniciando device code flow.")
 
-    # Este mensaje sale en logs de Render con el link y el código vigente
-    log.info(f"Autoriza OneDrive: {flow['message']}")
+    mensaje = flow.get("message", "")
+    log.info(f"Autoriza OneDrive: {mensaje}")
 
-    result = app.acquire_token_by_device_flow(flow)
-    save_cache(cache)
-
-    if "access_token" not in result:
-        raise RuntimeError(f"No se obtuvo token: {result.get('error_description')}")
-
-    return result["access_token"]
+    raise RuntimeError(
+        f"OneDrive no autorizado aún. Ve a https://login.microsoft.com/device e ingresa el código {flow['user_code']}"
+    )
 
 
 def upload_to_onedrive(local_path: str, remote_dir: str, filename: str):
