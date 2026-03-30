@@ -1,0 +1,5 @@
+python-telegram-bot==21.6
+msal==1.30.0
+requests==2.32.3
+gspread
+google-auth
