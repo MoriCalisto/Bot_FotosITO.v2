@@ -227,20 +227,32 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # =============== APP/RUN ===============
-async def main():
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[MessageHandler(filters.PHOTO, on_photo)],
-        states={ASK_PRINCIPAL: [CallbackQueryHandler(choose_principal)]},
+        states={
+            ASK_FRENTE: [CallbackQueryHandler(choose_frente)],
+            ASK_SECUENCIA: [CallbackQueryHandler(choose_secuencia)],
+            ASK_MR_UNICO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_unico)],
+            ASK_MR_INICIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_inicio)],
+            ASK_MR_FIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_fin)],
+            ASK_COMENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_comentario)],
+        },
         fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
+        allow_reentry=True,
     )
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(conv)
 
-    log.info(f"Bot iniciado. Guardando local en: {os.path.abspath(PHOTO_SAVE_ROOT)}  | OneDrive root: /{ONEDRIVE_ROOT}")
-    await app.run_polling()
+    log.info(
+        f"Bot iniciado. Guardando local en: {os.path.abspath(PHOTO_SAVE_ROOT)}  | OneDrive root: /{ONEDRIVE_ROOT}"
+    )
+
+    app.run_polling()
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
