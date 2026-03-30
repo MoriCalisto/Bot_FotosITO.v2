@@ -68,6 +68,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("BotFotosITO")
 
+# =============== OneDrive Device Flow Temp Storage ===============
+PENDING_ONEDRIVE_FLOWS = {}
+
 
 # =============== HEALTHCHECK SERVER ===============
 class HealthHandler(BaseHTTPRequestHandler):
@@ -247,15 +250,8 @@ def get_graph_token():
             save_cache(cache)
             return result["access_token"]
 
-    flow = app.initiate_device_flow(scopes=MS_SCOPES)
-    if "user_code" not in flow:
-        raise RuntimeError("Fallo iniciando device code flow.")
-
-    mensaje = flow.get("message", "")
-    log.info(f"Autoriza OneDrive: {mensaje}")
-
     raise RuntimeError(
-        f"OneDrive no autorizado aún. Ve a https://login.microsoft.com/device e ingresa el código {flow['user_code']}"
+        "OneDrive no autorizado aún. Usa /onedrive_login y luego /onedrive_finish."
     )
 
 
@@ -272,6 +268,78 @@ def upload_to_onedrive(local_path: str, remote_dir: str, filename: str):
 
 
 # =============== HANDLERS ===============
+async def cmd_onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    cache = load_cache()
+    app = msal.PublicClientApplication(
+        MS_CLIENT_ID,
+        authority=authority,
+        token_cache=cache,
+    )
+
+    flow = app.initiate_device_flow(scopes=MS_SCOPES)
+    if "user_code" not in flow:
+        await update.message.reply_text("❌ No se pudo iniciar el login de OneDrive.")
+        return
+
+    chat_id = str(update.message.chat_id)
+    PENDING_ONEDRIVE_FLOWS[chat_id] = {
+        "flow": flow,
+        "cache": cache,
+        "created_at": datetime.now().isoformat(),
+    }
+
+    mensaje = flow.get("message", "")
+    log.info(f"Autoriza OneDrive manual: {mensaje}")
+
+    await update.message.reply_text(
+        "🔐 Autorización OneDrive iniciada.\n\n"
+        f"{mensaje}\n\n"
+        "Cuando termines en Microsoft, vuelve aquí y escribe:\n"
+        "/onedrive_finish"
+    )
+
+
+async def cmd_onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
+    chat_id = str(update.message.chat_id)
+    pending = PENDING_ONEDRIVE_FLOWS.get(chat_id)
+
+    if not pending:
+        await update.message.reply_text(
+            "⚠️ No hay una autorización pendiente.\n"
+            "Primero ejecuta /onedrive_login"
+        )
+        return
+
+    flow = pending["flow"]
+    cache = pending["cache"]
+
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    app = msal.PublicClientApplication(
+        MS_CLIENT_ID,
+        authority=authority,
+        token_cache=cache,
+    )
+
+    result = app.acquire_token_by_device_flow(flow)
+
+    if "access_token" in result:
+        save_cache(cache)
+        PENDING_ONEDRIVE_FLOWS.pop(chat_id, None)
+        await update.message.reply_text("✅ OneDrive autorizado correctamente.")
+    else:
+        await update.message.reply_text(
+            "❌ Aún no se pudo obtener el token.\n"
+            f"Detalle: {result.get('error_description', 'sin detalle')}"
+        )
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Envíame una foto.\n"
@@ -285,7 +353,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- CB\n"
         "- OQUEDAD\n"
         "- LANZA\n"
-        "- DET"
+        "- DET\n\n"
+        "Comandos útiles:\n"
+        "/onedrive_login → iniciar autorización OneDrive\n"
+        "/onedrive_finish → terminar autorización OneDrive"
     )
 
 
@@ -585,6 +656,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    log.exception("Unhandled exception", exc_info=context.error)
+
+
 def main():
     start_health_server()
 
@@ -608,7 +683,10 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("onedrive_login", cmd_onedrive_login))
+    app.add_handler(CommandHandler("onedrive_finish", cmd_onedrive_finish))
     app.add_handler(conv)
+    app.add_error_handler(error_handler)
 
     log.info(
         f"Bot iniciado. Guardando local en: {os.path.abspath(PHOTO_SAVE_ROOT)}  | OneDrive root: /{ONEDRIVE_ROOT}"
