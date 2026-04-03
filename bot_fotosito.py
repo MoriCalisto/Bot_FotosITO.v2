@@ -21,7 +21,7 @@ from telegram.ext import (
 
 ### =============== CONFIG ===============
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # <--- ID de seguridad para el Módulo Admin
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Tu ID para el Módulo Admin
 
 if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
@@ -29,7 +29,7 @@ if not BOT_TOKEN:
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./photos")
 os.makedirs(PHOTO_SAVE_ROOT, exist_ok=True)
 
-# Lista de frentes actualizada con las subdivisiones de RS
+# Opciones extraídas exactamente de tu prompt
 FRENTE_CHOICES = [
     "VEE", "BR-OR", "BR-PON", "BR-SUP",
     "TALL-SUP", "TALL-OR", "TALL-PON",
@@ -70,6 +70,11 @@ def start_health_server():
     log.info(f"Healthcheck HTTP server escuchando en 0.0.0.0:{PORT}")
     return server
 
+### =============== FUNCIONES AUXILIARES PARA BOTONES ===============
+def build_menu(buttons, n_cols):
+    """Agrupa los botones en filas para que no se vea una lista gigante"""
+    return [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
+
 ### =============== SEGURIDAD MÓDULO ADMIN ===============
 def admin_only(func):
     @wraps(func)
@@ -86,25 +91,19 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
         "🛠️ *PANEL DE ADMINISTRADOR* 🛠️\n\n"
         "Comandos disponibles:\n"
-        "📊 /resumen_hoy - Fotos subidas hoy por usuario y frente\n"
-        "🏗️ /ultimos_marcos - Último marco instalado por frente\n"
-        "🗑️ /eliminaciones - Ver solicitudes de eliminación pendientes"
+        "📊 /resumen_hoy - Fotos subidas hoy\n"
+        "🏗️ /ultimos_marcos - Último marco instalado\n"
     )
     await update.message.reply_text(texto, parse_mode="Markdown")
 
 @admin_only
 async def cmd_resumen_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Calculando resumen de hoy desde Google Sheets...")
-
-@admin_only
-async def cmd_ultimos_marcos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Buscando los últimos marcos por frente...")
+    await update.message.reply_text("⏳ Esta función se conectará pronto a Google Sheets...")
 
 ### =============== HANDLERS OPERACIÓN (INSPECTORES) ===============
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hola. Envíame una foto del frente de trabajo para comenzar.\n"
-        "Si envías un archivo como 'Documento', podré mantener la calidad original."
+        "👋 Hola. Envíame una foto del frente de trabajo para comenzar el registro."
     )
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,40 +111,69 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     usuario_id = update.message.from_user.id
-    log.info(f"Archivo recibido de ID: {usuario_id}")
+    nombre_usuario = update.message.from_user.first_name
     
-    # Inicializamos la memoria temporal del usuario
-    context.user_data["pending"] = {"usuario_id": usuario_id}
+    # 1. Obtener y guardar la foto en el contenedor
+    if update.message.photo:
+        photo_file = await update.message.photo[-1].get_file()
+    else:
+        photo_file = await update.message.document.get_file()
+        
+    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{usuario_id}.jpg"
+    local_path = os.path.join(PHOTO_SAVE_ROOT, filename)
+    await photo_file.download_to_drive(local_path)
+    log.info(f"Foto guardada localmente en: {local_path}")
     
-    await update.message.reply_text("📸 Imagen recibida. Por favor, escribe o selecciona el Frente (Ej: BR-PON):")
+    # 2. Guardar datos en la memoria temporal
+    context.user_data["pending"] = {
+        "usuario_id": usuario_id,
+        "nombre": nombre_usuario,
+        "filename": filename,
+        "local_path": local_path,
+        "fecha": datetime.now().strftime("%d/%m/%Y"),
+        "hora": datetime.now().strftime("%H:%M:%S")
+    }
+    
+    # 3. Desplegar BOTONES de Frente
+    botones_frente = [InlineKeyboardButton(f, callback_data=f) for f in FRENTE_CHOICES]
+    reply_markup = InlineKeyboardMarkup(build_menu(botones_frente, 3)) # 3 botones por fila
+    
+    await update.message.reply_text("📸 Imagen recibida y guardada.\n\nPor favor, selecciona el Frente:", reply_markup=reply_markup)
     return ASK_FRENTE
 
 async def choose_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    if q: await q.answer()
+    query = update.callback_query
+    await query.answer()
     
-    frente = q.data if q else update.message.text
+    frente = query.data
     context.user_data["pending"]["frente"] = frente
     
-    await update.message.reply_text("Selecciona la Secuencia (SOST, REV, CB, OQUEDAD, LANZA, DET):")
+    # Desplegar BOTONES de Secuencia
+    botones_secuencia = [InlineKeyboardButton(s, callback_data=s) for s in SECUENCIA_CHOICES]
+    reply_markup = InlineKeyboardMarkup(build_menu(botones_secuencia, 3))
+    
+    await query.edit_message_text(
+        f"✅ Frente seleccionado: {frente}\n\nAhora selecciona la Secuencia:", 
+        reply_markup=reply_markup
+    )
     return ASK_SECUENCIA
 
 async def choose_secuencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    if q: await q.answer()
+    query = update.callback_query
+    await query.answer()
     
-    secuencia = q.data if q else update.message.text
+    secuencia = query.data
     context.user_data["pending"]["secuencia"] = secuencia
     
-    # Lógica condicional según el diseño
+    # Lógica condicional exacta
     if secuencia == "SOST":
-        await update.message.reply_text("Ingresa el Marco Único:")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa el **Marco Único** (número):", parse_mode="Markdown")
         return ASK_MR_UNICO
     elif secuencia in ["REV", "CB"]:
-        await update.message.reply_text("Ingresa el Marco de Inicio:")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa el **Marco de Inicio** (número):", parse_mode="Markdown")
         return ASK_MR_INICIO
     else:
-        await update.message.reply_text("Ingresa un comentario opcional (escribe '-' para dejar vacío):")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa un comentario (escribe '-' para dejar vacío):", parse_mode="Markdown")
         return ASK_COMENTARIO
 
 async def receive_mr_unico(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,7 +182,7 @@ async def receive_mr_unico(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_mr_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pending"]["mr_inicio"] = update.message.text
-    await update.message.reply_text("Ingresa el Marco de Fin:")
+    await update.message.reply_text("Ingresa el **Marco de Fin** (número):", parse_mode="Markdown")
     return ASK_MR_FIN
 
 async def receive_mr_fin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -162,27 +190,42 @@ async def receive_mr_fin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await finalize_record(update, context)
 
 async def receive_comentario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["pending"]["comentario"] = update.message.text
+    comentario = update.message.text
+    context.user_data["pending"]["comentario"] = "" if comentario == "-" else comentario
     return await finalize_record(update, context)
 
-async def finalize_record(update_or_query, context: ContextTypes.DEFAULT_TYPE):
-    # ¡SOLUCIÓN AL SYNTAX ERROR! Un bloque try estructurado y cerrado
+async def finalize_record(update, context: ContextTypes.DEFAULT_TYPE):
     try:
         pending = context.user_data.get("pending")
         if not pending: 
             return ConversationHandler.END
             
-        log.info(f"Procesando registro: {pending}")
+        log.info(f"Registro completo listo para Sheets/OneDrive: {pending}")
         
-        # Aquí se inyectará la lógica de Google Sheets y OneDrive posteriormente
+        # Aquí se inyectará la función real de Gspread y OneDrive.
+        # Por ahora mostramos el resumen al usuario para confirmar que capturó todo.
         
-        await update_or_query.message.reply_text("✅ ¡Registro temporal guardado en memoria exitosamente!")
+        resumen = (
+            "✅ **¡Registro guardado exitosamente!**\n\n"
+            f"👤 Inspector: {pending.get('nombre')}\n"
+            f"📍 Frente: {pending.get('frente')}\n"
+            f"🔄 Secuencia: {pending.get('secuencia')}\n"
+            f"📸 Archivo: {pending.get('filename')}"
+        )
+        
+        if pending.get('mr_unico'):
+            resumen += f"\n🏗️ Marco: {pending.get('mr_unico')}"
+        elif pending.get('mr_inicio'):
+            resumen += f"\n🏗️ Marcos: {pending.get('mr_inicio')} al {pending.get('mr_fin')}"
+        if pending.get('comentario'):
+            resumen += f"\n📝 Obs: {pending.get('comentario')}"
+
+        await update.message.reply_text(resumen, parse_mode="Markdown")
         
     except Exception as e:
-        log.error(f"Error al guardar registro: {e}")
-        await update_or_query.message.reply_text("❌ Ocurrió un error al intentar procesar los datos.")
+        log.error(f"Error al finalizar registro: {e}")
+        await update.message.reply_text("❌ Ocurrió un error al intentar procesar los datos finales.")
     finally:
-        # Se asegura de limpiar la memoria para la próxima foto sin importar si falló o no
         context.user_data.clear()
         
     return ConversationHandler.END
@@ -196,22 +239,22 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.error("Exception in telegram handler", exc_info=context.error)
 
 def main():
-    # 1. Iniciar el servidor Healthcheck para mantener Render vivo
+    # 1. Iniciar servidor Healthcheck para Render
     start_health_server()
     
-    # 2. Fix de Event Loop para las versiones recientes de Python
+    # 2. Fix de Event Loop para versiones recientes de Python
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # 3. Construir la aplicación del bot
+    # 3. Construir bot
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # 4. Construir el flujo del Módulo Operación
+    # 4. Flujo conversacional
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo)],
         states={
-            ASK_FRENTE: [CallbackQueryHandler(choose_frente), MessageHandler(filters.TEXT & ~filters.COMMAND, choose_frente)],
-            ASK_SECUENCIA: [CallbackQueryHandler(choose_secuencia), MessageHandler(filters.TEXT & ~filters.COMMAND, choose_secuencia)],
+            ASK_FRENTE: [CallbackQueryHandler(choose_frente)],
+            ASK_SECUENCIA: [CallbackQueryHandler(choose_secuencia)],
             ASK_MR_UNICO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_unico)],
             ASK_MR_INICIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_inicio)],
             ASK_MR_FIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_fin)],
@@ -221,12 +264,10 @@ def main():
         per_message=False
     )
     
-    # 5. Registrar Comandos (Incluyendo los protegidos del Admin)
+    # 5. Registrar Comandos
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("admin", cmd_admin))
     app.add_handler(CommandHandler("resumen_hoy", cmd_resumen_hoy))
-    app.add_handler(CommandHandler("ultimos_marcos", cmd_ultimos_marcos))
-    
     app.add_handler(conv_handler)
     app.add_error_handler(error_handler)
     
