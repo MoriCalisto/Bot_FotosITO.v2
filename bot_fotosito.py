@@ -36,7 +36,7 @@ FRENTE_CHOICES = [
     "TALL-SUP", "TALL-OR", "TALL-PON",
     "LOE-SUP", "LOE-OR", "LOE-PON",
     "LOE-TEA", "LOE-TEB", "LOE-TEC",
-    "RS"
+    "RS-PIQ", "RS-SUP"
 ]
 
 SECUENCIA_CHOICES = ["SOST", "REV", "CB", "OQUEDAD", "LANZA", "DET"]
@@ -123,16 +123,11 @@ ensure_csv()
 
 # =============== UTILS ===============
 def frente_from_codigo(codigo: str) -> str:
-    if codigo.startswith("BR"):
-        return "BREMEN"
-    if codigo.startswith("TALL"):
-        return "TALLERES"
-    if codigo.startswith("LOE"):
-        return "LO ERRAZURIZ"
-    if codigo == "VEE":
-        return "VIA ENLACE EXISTENTE"
-    if codigo == "RS":
-        return "ROMAN SALINAS"
+    if codigo.startswith("BR"): return "BREMEN"
+    if codigo.startswith("TALL"): return "TALLERES"
+    if codigo.startswith("LOE"): return "LO ERRAZURIZ"
+    if codigo == "VEE": return "VIA ENLACE EXISTENTE"
+    if codigo.startswith("RS"): return "ROMAN SALINAS"
     return "N/A"
 
 
