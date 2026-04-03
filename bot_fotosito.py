@@ -659,10 +659,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception", exc_info=context.error)
 
-
 def main():
     # 1. Iniciar el servidor Healthcheck para que Render no apague el bot
     start_health_server()
+    
+    # --- FIX CRÍTICO: Crear un event loop para versiones nuevas de Python ---
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    # ------------------------------------------------------------------------
     
     # 2. Construir la aplicación del bot de Telegram
     app = Application.builder().token(BOT_TOKEN).build()
@@ -698,5 +702,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-if __name__ == "__main__":
-    main()
