@@ -21,7 +21,7 @@ from telegram.ext import (
 
 ### =============== CONFIG ===============
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Tu ID para el Módulo Admin
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
@@ -29,7 +29,6 @@ if not BOT_TOKEN:
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./photos")
 os.makedirs(PHOTO_SAVE_ROOT, exist_ok=True)
 
-# Opciones extraídas exactamente de tu prompt
 FRENTE_CHOICES = [
     "VEE", "BR-OR", "BR-PON", "BR-SUP",
     "TALL-SUP", "TALL-OR", "TALL-PON",
@@ -67,44 +66,143 @@ def start_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    log.info(f"Healthcheck HTTP server escuchando en 0.0.0.0:{PORT}")
     return server
 
-### =============== FUNCIONES AUXILIARES PARA BOTONES ===============
+### =============== HELPERS DE BOTONES ===============
 def build_menu(buttons, n_cols):
-    """Agrupa los botones en filas para que no se vea una lista gigante"""
     return [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
 
-### =============== SEGURIDAD MÓDULO ADMIN ===============
+### =============== GOOGLE SHEETS & MSAL (ONEDRIVE) ===============
+GS_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+def get_gspread_client():
+    creds_raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+    if not creds_raw:
+        raise RuntimeError("Falta GOOGLE_SHEETS_CREDENTIALS_JSON en Render.")
+    creds_dict = json.loads(creds_raw, strict=False)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=GS_SCOPES)
+    return gspread.authorize(creds)
+
+def get_registro_worksheet():
+    client = get_gspread_client()
+    sheet_name = os.getenv("GOOGLE_SHEET_NAME", "")
+    if not sheet_name:
+        raise RuntimeError("Falta GOOGLE_SHEET_NAME en Render.")
+    return client.open(sheet_name).worksheet("RegistroFotos")
+
+def build_sheet_row(data: dict) -> list:
+    return [
+        data.get("ID_Registro", ""), data.get("Fecha", ""), data.get("Hora", ""),
+        data.get("Timestamp", ""), data.get("Usuario_ID", ""), data.get("Nombre", ""),
+        data.get("Username", ""), data.get("ChatID", ""), data.get("Frente", ""),
+        data.get("Secuencia", ""), data.get("MR_Inicio", ""), data.get("MR_Fin", ""),
+        data.get("MR_Unico", ""), data.get("Comentario", ""), data.get("File_ID", ""),
+        data.get("Photo_Unique_ID", ""), data.get("Nombre_Archivo", ""),
+        data.get("Link_Foto", ""), data.get("Ruta_Carpeta", ""), data.get("Estado", "Activo"),
+        data.get("Solicitud_Eliminacion", "NO"), data.get("Motivo_Eliminacion", ""),
+        data.get("Fecha_Solicitud", ""), data.get("Aprobacion", "Pendiente"),
+        data.get("Aprobado_Por", ""), data.get("Fecha_Aprobacion", ""),
+        data.get("Observacion_Admin", ""),
+    ]
+
+# OneDrive Auth config
+MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
+MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
+MS_SCOPES = ["Files.ReadWrite", "offline_access"]
+ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO")
+TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./token_cache.bin")
+PENDING_ONEDRIVE_FLOWS = {}
+
+def load_cache():
+    cache = msal.SerializableTokenCache()
+    if os.path.exists(TOKEN_CACHE_PATH):
+        try:
+            with open(TOKEN_CACHE_PATH, "r", encoding="utf-8") as f:
+                cache.deserialize(f.read())
+        except Exception:
+            pass
+    return cache
+
+def save_cache(cache):
+    if cache.has_state_changed:
+        with open(TOKEN_CACHE_PATH, "w", encoding="utf-8") as f:
+            f.write(cache.serialize())
+
+def get_graph_token():
+    if not MS_CLIENT_ID:
+        raise RuntimeError("Falta MS_CLIENT_ID en Render.")
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    cache = load_cache()
+    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=authority, token_cache=cache)
+    accounts = app.get_accounts()
+    if accounts:
+        result = app.acquire_token_silent(MS_SCOPES, account=accounts)
+        if result and "access_token" in result:
+            save_cache(cache)
+            return result["access_token"]
+    raise RuntimeError("Falta Login OneDrive")
+
+def upload_to_onedrive(local_path: str, remote_dir: str, filename: str):
+    token = get_graph_token()
+    remote_path = f"/{ONEDRIVE_ROOT}/{remote_dir}/{filename}".replace("//", "/")
+    url = f"https://graph.microsoft.com/v1.0/me/drive/root:{remote_path}:/content"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/octet-stream"}
+    with open(local_path, "rb") as f:
+        data = f.read()
+    response = requests.put(url, headers=headers, data=data)
+    response.raise_for_status()
+
+### =============== COMANDOS ADMIN Y ONEDRIVE ===============
 def admin_only(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.id != ADMIN_ID:
-            await update.message.reply_text("⛔ Acceso denegado. Este comando es exclusivo para el Administrador.")
+            await update.message.reply_text("⛔ Acceso denegado.")
             return
         return await func(update, context)
     return wrapper
 
-### =============== COMANDOS ADMIN ===============
 @admin_only
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto = (
-        "🛠️ *PANEL DE ADMINISTRADOR* 🛠️\n\n"
-        "Comandos disponibles:\n"
-        "📊 /resumen_hoy - Fotos subidas hoy\n"
-        "🏗️ /ultimos_marcos - Último marco instalado\n"
-    )
-    await update.message.reply_text(texto, parse_mode="Markdown")
+    await update.message.reply_text("🛠️ *PANEL DE ADMINISTRADOR* 🛠️", parse_mode="Markdown")
 
-@admin_only
-async def cmd_resumen_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Esta función se conectará pronto a Google Sheets...")
+async def cmd_onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=authority)
+    flow = app.initiate_device_flow(scopes=MS_SCOPES)
+    if "user_code" not in flow:
+        await update.message.reply_text("Error al iniciar Microsoft Auth.")
+        return
+    PENDING_ONEDRIVE_FLOWS[update.message.from_user.id] = flow
+    await update.message.reply_text(
+        f"🔗 *Conectar OneDrive*\n1. Entra a {flow['verification_uri']}\n"
+        f"2. Escribe este código: `{flow['user_code']}`\n"
+        "3. Vuelve a Telegram y envía /onedrive_finish", parse_mode="Markdown"
+    )
+
+async def cmd_onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    flow = PENDING_ONEDRIVE_FLOWS.get(user_id)
+    if not flow:
+        await update.message.reply_text("Usa /onedrive_login primero.")
+        return
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    cache = load_cache()
+    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=authority, token_cache=cache)
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" in result:
+        save_cache(cache)
+        del PENDING_ONEDRIVE_FLOWS[user_id]
+        await update.message.reply_text("✅ ¡OneDrive conectado y autorizado exitosamente!")
+    else:
+        await update.message.reply_text("❌ Error de autorización.")
 
 ### =============== HANDLERS OPERACIÓN (INSPECTORES) ===============
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Hola. Envíame una foto del frente de trabajo para comenzar el registro."
-    )
+    await update.message.reply_text("👋 Hola. Envíame una foto para comenzar.")
 
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or (not update.message.photo and not update.message.document):
@@ -113,7 +211,6 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usuario_id = update.message.from_user.id
     nombre_usuario = update.message.from_user.first_name
     
-    # 1. Obtener y guardar la foto en el contenedor
     if update.message.photo:
         photo_file = await update.message.photo[-1].get_file()
     else:
@@ -122,58 +219,45 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{usuario_id}.jpg"
     local_path = os.path.join(PHOTO_SAVE_ROOT, filename)
     await photo_file.download_to_drive(local_path)
-    log.info(f"Foto guardada localmente en: {local_path}")
     
-    # 2. Guardar datos en la memoria temporal
     context.user_data["pending"] = {
         "usuario_id": usuario_id,
         "nombre": nombre_usuario,
         "filename": filename,
         "local_path": local_path,
-        "fecha": datetime.now().strftime("%d/%m/%Y"),
+        "fecha": datetime.now().strftime("%d-%m-%Y"),
         "hora": datetime.now().strftime("%H:%M:%S")
     }
     
-    # 3. Desplegar BOTONES de Frente
     botones_frente = [InlineKeyboardButton(f, callback_data=f) for f in FRENTE_CHOICES]
-    reply_markup = InlineKeyboardMarkup(build_menu(botones_frente, 3)) # 3 botones por fila
-    
-    await update.message.reply_text("📸 Imagen recibida y guardada.\n\nPor favor, selecciona el Frente:", reply_markup=reply_markup)
+    reply_markup = InlineKeyboardMarkup(build_menu(botones_frente, 3))
+    await update.message.reply_text("📸 Imagen guardada.\nSelecciona el Frente:", reply_markup=reply_markup)
     return ASK_FRENTE
 
 async def choose_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    context.user_data["pending"]["frente"] = query.data
     
-    frente = query.data
-    context.user_data["pending"]["frente"] = frente
-    
-    # Desplegar BOTONES de Secuencia
     botones_secuencia = [InlineKeyboardButton(s, callback_data=s) for s in SECUENCIA_CHOICES]
     reply_markup = InlineKeyboardMarkup(build_menu(botones_secuencia, 3))
-    
-    await query.edit_message_text(
-        f"✅ Frente seleccionado: {frente}\n\nAhora selecciona la Secuencia:", 
-        reply_markup=reply_markup
-    )
+    await query.edit_message_text(f"✅ Frente: {query.data}\nSelecciona Secuencia:", reply_markup=reply_markup)
     return ASK_SECUENCIA
 
 async def choose_secuencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     secuencia = query.data
     context.user_data["pending"]["secuencia"] = secuencia
     
-    # Lógica condicional exacta
     if secuencia == "SOST":
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa el **Marco Único** (número):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el **Marco Único** (número):", parse_mode="Markdown")
         return ASK_MR_UNICO
     elif secuencia in ["REV", "CB"]:
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa el **Marco de Inicio** (número):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el **Marco de Inicio** (número):", parse_mode="Markdown")
         return ASK_MR_INICIO
     else:
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\n\nIngresa un comentario (escribe '-' para dejar vacío):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa un comentario (o '-' para omitir):", parse_mode="Markdown")
         return ASK_COMENTARIO
 
 async def receive_mr_unico(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,34 +281,62 @@ async def receive_comentario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def finalize_record(update, context: ContextTypes.DEFAULT_TYPE):
     try:
         pending = context.user_data.get("pending")
-        if not pending: 
-            return ConversationHandler.END
-            
-        log.info(f"Registro completo listo para Sheets/OneDrive: {pending}")
+        if not pending: return ConversationHandler.END
         
-        # Aquí se inyectará la función real de Gspread y OneDrive.
-        # Por ahora mostramos el resumen al usuario para confirmar que capturó todo.
-        
-        resumen = (
-            "✅ **¡Registro guardado exitosamente!**\n\n"
-            f"👤 Inspector: {pending.get('nombre')}\n"
-            f"📍 Frente: {pending.get('frente')}\n"
-            f"🔄 Secuencia: {pending.get('secuencia')}\n"
-            f"📸 Archivo: {pending.get('filename')}"
-        )
-        
-        if pending.get('mr_unico'):
-            resumen += f"\n🏗️ Marco: {pending.get('mr_unico')}"
-        elif pending.get('mr_inicio'):
-            resumen += f"\n🏗️ Marcos: {pending.get('mr_inicio')} al {pending.get('mr_fin')}"
-        if pending.get('comentario'):
-            resumen += f"\n📝 Obs: {pending.get('comentario')}"
+        await update.message.reply_text("⏳ Procesando guardado en la nube...")
 
-        await update.message.reply_text(resumen, parse_mode="Markdown")
+        # 1. GENERAR FILAS (Lógica Múltiples Filas para PowerBI)
+        row_base = {
+            "Fecha": pending["fecha"], "Hora": pending["hora"],
+            "Usuario_ID": pending["usuario_id"], "Nombre": pending["nombre"],
+            "Frente": pending["frente"], "Secuencia": pending["secuencia"],
+            "MR_Inicio": pending.get("mr_inicio", ""), "MR_Fin": pending.get("mr_fin", ""),
+            "MR_Unico": pending.get("mr_unico", ""), "Comentario": pending.get("comentario", ""),
+            "Nombre_Archivo": pending["filename"], "Estado": "Activo", "Aprobacion": "Pendiente"
+        }
+
+        filas_a_insertar = []
+        if pending["secuencia"] in ["REV", "CB"] and pending.get("mr_inicio") and pending.get("mr_fin"):
+            try:
+                inicio, fin = int(pending["mr_inicio"]), int(pending["mr_fin"])
+                step = 1 if inicio <= fin else -1
+                for mr in range(inicio, fin + step, step):
+                    clon = row_base.copy()
+                    clon["MR_Unico"] = str(mr) # Relleno individual para matriz de Power BI
+                    filas_a_insertar.append(build_sheet_row(clon))
+            except ValueError:
+                filas_a_insertar.append(build_sheet_row(row_base))
+        else:
+            filas_a_insertar.append(build_sheet_row(row_base))
+
+        # 2. GUARDAR EN GOOGLE SHEETS
+        sheets_ok = False
+        try:
+            ws = get_registro_worksheet()
+            ws.append_rows(filas_a_insertar, value_input_option="USER_ENTERED")
+            sheets_ok = True
+        except Exception as e:
+            log.error(f"Error Sheets: {e}")
+
+        # 3. GUARDAR EN ONEDRIVE
+        onedrive_ok = False
+        try:
+            upload_to_onedrive(pending["local_path"], pending["frente"], pending["filename"])
+            onedrive_ok = True
+        except Exception as e:
+            log.error(f"Error OneDrive: {e}")
+
+        # 4. RESUMEN FINAL AL USUARIO
+        resumen = "✅ **¡Registro Finalizado!**\n\n"
+        resumen += "📊 Google Sheets: " + ("OK" if sheets_ok else "⚠️ ERROR") + "\n"
+        resumen += "☁️ OneDrive: " + ("OK" if onedrive_ok else "⚠️ ERROR (Usa /onedrive_login)") + "\n\n"
+        resumen += f"Frente: {pending['frente']}\nSecuencia: {pending['secuencia']}"
         
+        await update.message.reply_text(resumen, parse_mode="Markdown")
+
     except Exception as e:
-        log.error(f"Error al finalizar registro: {e}")
-        await update.message.reply_text("❌ Ocurrió un error al intentar procesar los datos finales.")
+        log.error(f"Error en finalize: {e}")
+        await update.message.reply_text("❌ Error interno. Reintenta enviando la foto.")
     finally:
         context.user_data.clear()
         
@@ -232,24 +344,16 @@ async def finalize_record(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🛑 Proceso cancelado. Envía una foto para comenzar de nuevo.")
+    await update.message.reply_text("🛑 Cancelado. Envía una foto de nuevo.")
     return ConversationHandler.END
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    log.error("Exception in telegram handler", exc_info=context.error)
-
 def main():
-    # 1. Iniciar servidor Healthcheck para Render
     start_health_server()
-    
-    # 2. Fix de Event Loop para versiones recientes de Python
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # 3. Construir bot
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # 4. Flujo conversacional
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo)],
         states={
@@ -264,14 +368,13 @@ def main():
         per_message=False
     )
     
-    # 5. Registrar Comandos
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("admin", cmd_admin))
-    app.add_handler(CommandHandler("resumen_hoy", cmd_resumen_hoy))
+    app.add_handler(CommandHandler("onedrive_login", cmd_onedrive_login))
+    app.add_handler(CommandHandler("onedrive_finish", cmd_onedrive_finish))
     app.add_handler(conv_handler)
-    app.add_error_handler(error_handler)
     
-    log.info("Bot iniciado y escuchando mensajes...")
+    log.info("Bot iniciado...")
     app.run_polling()
 
 if __name__ == "__main__":
