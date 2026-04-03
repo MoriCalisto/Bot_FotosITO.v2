@@ -661,14 +661,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # 1. Iniciar el servidor Healthcheck para que Render no apague el bot
     start_health_server()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+    
+    # 2. Construir la aplicación del bot de Telegram
     app = Application.builder().token(BOT_TOKEN).build()
-
-    conv = ConversationHandler(
+    
+    # 3. Construir el ConversationHandler con todos tus estados
+    conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.PHOTO, on_photo)],
         states={
             ASK_FRENTE: [CallbackQueryHandler(choose_frente)],
@@ -676,24 +676,27 @@ def main():
             ASK_MR_UNICO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_unico)],
             ASK_MR_INICIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_inicio)],
             ASK_MR_FIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_fin)],
-            ASK_COMENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_comentario)],
+            ASK_COMENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_comentario)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True,
+        per_message=False
     )
-
+    
+    # 4. Registrar los comandos básicos
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("onedrive_login", cmd_onedrive_login))
     app.add_handler(CommandHandler("onedrive_finish", cmd_onedrive_finish))
-    app.add_handler(conv)
+    
+    # 5. Registrar el manejador de la conversación (fotos) y errores
+    app.add_handler(conv_handler)
     app.add_error_handler(error_handler)
+    
+    # 6. Poner al bot a escuchar a Telegram
+    log.info("Bot iniciado y escuchando mensajes...")
+    app.run_polling()
 
-    log.info(
-        f"Bot iniciado. Guardando local en: {os.path.abspath(PHOTO_SAVE_ROOT)}  | OneDrive root: /{ONEDRIVE_ROOT}"
-    )
-
-    app.run_polling(close_loop=False)
-
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
