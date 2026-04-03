@@ -167,7 +167,7 @@ def admin_only(func):
 
 @admin_only
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛠️ *PANEL DE ADMINISTRADOR* 🛠️", parse_mode="Markdown")
+    await update.message.reply_text("🛠️ *PANEL DE ADMINISTRADOR*\n\nPróximamente más funciones...", parse_mode="Markdown")
 
 async def cmd_onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
@@ -225,7 +225,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "nombre": nombre_usuario,
         "filename": filename,
         "local_path": local_path,
-        "fecha": datetime.now().strftime("%d-%m-%Y"),
+        "fecha": datetime.now().strftime("%d/%m/%Y"),
         "hora": datetime.now().strftime("%H:%M:%S")
     }
     
@@ -251,13 +251,13 @@ async def choose_secuencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pending"]["secuencia"] = secuencia
     
     if secuencia == "SOST":
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el **Marco Único** (número):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el Marco Único (número):")
         return ASK_MR_UNICO
     elif secuencia in ["REV", "CB"]:
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el **Marco de Inicio** (número):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa el Marco de Inicio (número):")
         return ASK_MR_INICIO
     else:
-        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa un comentario (o '-' para omitir):", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Secuencia: {secuencia}\nIngresa un comentario (o '-' para omitir):")
         return ASK_COMENTARIO
 
 async def receive_mr_unico(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -266,7 +266,7 @@ async def receive_mr_unico(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_mr_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pending"]["mr_inicio"] = update.message.text
-    await update.message.reply_text("Ingresa el **Marco de Fin** (número):", parse_mode="Markdown")
+    await update.message.reply_text("Ingresa el Marco de Fin (número):")
     return ASK_MR_FIN
 
 async def receive_mr_fin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -285,7 +285,6 @@ async def finalize_record(update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text("⏳ Procesando guardado en la nube...")
 
-        # 1. GENERAR FILAS (Lógica Múltiples Filas para PowerBI)
         row_base = {
             "Fecha": pending["fecha"], "Hora": pending["hora"],
             "Usuario_ID": pending["usuario_id"], "Nombre": pending["nombre"],
@@ -302,41 +301,46 @@ async def finalize_record(update, context: ContextTypes.DEFAULT_TYPE):
                 step = 1 if inicio <= fin else -1
                 for mr in range(inicio, fin + step, step):
                     clon = row_base.copy()
-                    clon["MR_Unico"] = str(mr) # Relleno individual para matriz de Power BI
+                    clon["MR_Unico"] = str(mr)
                     filas_a_insertar.append(build_sheet_row(clon))
             except ValueError:
                 filas_a_insertar.append(build_sheet_row(row_base))
         else:
             filas_a_insertar.append(build_sheet_row(row_base))
 
-        # 2. GUARDAR EN GOOGLE SHEETS
         sheets_ok = False
         try:
             ws = get_registro_worksheet()
             ws.append_rows(filas_a_insertar, value_input_option="USER_ENTERED")
             sheets_ok = True
         except Exception as e:
-            log.error(f"Error Sheets: {e}")
+            log.error(f"Error Sheets: {e}", exc_info=True)
 
-        # 3. GUARDAR EN ONEDRIVE
         onedrive_ok = False
         try:
             upload_to_onedrive(pending["local_path"], pending["frente"], pending["filename"])
             onedrive_ok = True
         except Exception as e:
-            log.error(f"Error OneDrive: {e}")
+            log.error(f"Error OneDrive: {e}", exc_info=True)
 
-        # 4. RESUMEN FINAL AL USUARIO
-        resumen = "✅ **¡Registro Finalizado!**\n\n"
-        resumen += "📊 Google Sheets: " + ("OK" if sheets_ok else "⚠️ ERROR") + "\n"
+        # FIX CRÍTICO: Construimos el texto SIN parse_mode="Markdown" para que nunca más colapse
+        resumen = "✅ ¡Registro Finalizado!\n\n"
+        resumen += "📊 Google Sheets: " + ("OK" if sheets_ok else "⚠️ ERROR (Revisa las variables en Render)") + "\n"
         resumen += "☁️ OneDrive: " + ("OK" if onedrive_ok else "⚠️ ERROR (Usa /onedrive_login)") + "\n\n"
-        resumen += f"Frente: {pending['frente']}\nSecuencia: {pending['secuencia']}"
+        resumen += f"Frente: {pending['frente']}\nSecuencia: {pending['secuencia']}\n"
         
-        await update.message.reply_text(resumen, parse_mode="Markdown")
+        if pending.get('mr_unico'):
+            resumen += f"🏗️ Marco: {pending.get('mr_unico')}\n"
+        elif pending.get('mr_inicio'):
+            resumen += f"🏗️ Marcos: {pending.get('mr_inicio')} al {pending.get('mr_fin')}\n"
+        
+        resumen += f"📸 Archivo: {pending['filename']}"
+
+        await update.message.reply_text(resumen)
 
     except Exception as e:
-        log.error(f"Error en finalize: {e}")
-        await update.message.reply_text("❌ Error interno. Reintenta enviando la foto.")
+        log.error(f"Error Critico en finalize: {e}", exc_info=True)
+        await update.message.reply_text("❌ Error interno de Telegram. Intenta enviar la foto nuevamente.")
     finally:
         context.user_data.clear()
         
