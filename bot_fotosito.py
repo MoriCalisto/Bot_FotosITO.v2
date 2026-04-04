@@ -30,14 +30,19 @@ if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
 
 # IMPORTANTE:
-# En Render conviene usar rutas persistentes, por ejemplo /var/data si tienes disk montado.
-PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "/var/data/photos")
-TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "/var/data/token_cache.bin")
-FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "/var/data/pending_onedrive_flows.json")
+PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
+TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
+FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
 
 os.makedirs(PHOTO_SAVE_ROOT, exist_ok=True)
-os.makedirs(os.path.dirname(TOKEN_CACHE_PATH), exist_ok=True)
-os.makedirs(os.path.dirname(FLOW_STORE_PATH), exist_ok=True)
+
+token_dir = os.path.dirname(TOKEN_CACHE_PATH)
+if token_dir:
+    os.makedirs(token_dir, exist_ok=True)
+
+flow_dir = os.path.dirname(FLOW_STORE_PATH)
+if flow_dir:
+    os.makedirs(flow_dir, exist_ok=True)
 
 FRENTE_CHOICES = [
     "VEE", "BR-OR", "BR-PON", "BR-SUP",
