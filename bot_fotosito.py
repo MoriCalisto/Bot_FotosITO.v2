@@ -155,7 +155,12 @@ def build_sheet_row(data: dict) -> list:
 # =========================================================
 MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
 MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
-MS_SCOPES = ["Files.ReadWrite", "offline_access"]
+
+# IMPORTANTE:
+# No incluir offline_access / openid / profile aquí.
+# MSAL los maneja como reservados o automáticos.
+MS_SCOPES = ["Files.ReadWrite"]
+
 ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO")
 
 def load_cache():
@@ -682,7 +687,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     start_health_server()
 
-    # FIX para Python 3.14
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
