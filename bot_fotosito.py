@@ -29,7 +29,7 @@ PORT = int(os.getenv("PORT", "10000"))
 if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
 
-# IMPORTANTE:
+# Rutas locales seguras para Render sin persistent disk
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
 TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
 FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
@@ -81,7 +81,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"ok")
 
     def log_message(self, format, *args):
-        return  # evita ruido en logs
+        return
 
 def start_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
@@ -555,7 +555,6 @@ async def finalize_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         final_filename = build_file_name_for_storage(pending)
 
-        # Renombrar archivo local para que quede con nombre final
         old_local_path = pending["local_path"]
         new_local_path = os.path.join(PHOTO_SAVE_ROOT, final_filename)
 
@@ -682,6 +681,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 def main():
     start_health_server()
+
+    # FIX para Python 3.14
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     app = Application.builder().token(BOT_TOKEN).build()
 
