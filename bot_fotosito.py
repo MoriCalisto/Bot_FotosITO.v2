@@ -47,7 +47,6 @@ if _admin_ids_raw:
 if _admin_id_single and _admin_id_single.isdigit():
     ADMIN_IDS.add(int(_admin_id_single))
 
-# Rutas locales seguras para Render
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
 TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
 FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
@@ -206,7 +205,6 @@ def build_sheet_row(data: dict) -> list:
 MS_CLIENT_ID = (os.getenv("MS_CLIENT_ID", "") or os.getenv("CLIENT_ID", "")).strip()
 MS_TENANT_ID = (os.getenv("MS_TENANT_ID", "") or os.getenv("TENANT_ID", "") or "common").strip()
 MS_SCOPES = ["Files.ReadWrite"]
-
 ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO").strip()
 
 def load_cache():
@@ -494,7 +492,10 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
-        botones_frente = [InlineKeyboardButton(f, callback_data=f) for f in FRENTE_CHOICES]
+        botones_frente = [
+            InlineKeyboardButton(f, callback_data=f"FRENTE|{f}")
+            for f in FRENTE_CHOICES
+        ]
         reply_markup = InlineKeyboardMarkup(build_menu(botones_frente, 3))
 
         await update.message.reply_text(
@@ -518,13 +519,27 @@ async def choose_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ La sesión expiró. Envía la foto nuevamente.")
         return ConversationHandler.END
 
-    pending["frente"] = query.data
+    data = query.data or ""
+    if not data.startswith("FRENTE|"):
+        await query.edit_message_text("❌ Frente inválido.")
+        return ConversationHandler.END
 
-    botones_secuencia = [InlineKeyboardButton(s, callback_data=s) for s in SECUENCIA_CHOICES]
+    frente = data.split("|", 1)[1]
+    if frente not in FRENTE_CHOICES:
+        await query.edit_message_text("❌ Frente no reconocido.")
+        return ConversationHandler.END
+
+    pending["frente"] = frente
+    log.info(f"Frente seleccionado: {frente} | user={pending.get('usuario_id')}")
+
+    botones_secuencia = [
+        InlineKeyboardButton(s, callback_data=f"SEC|{s}")
+        for s in SECUENCIA_CHOICES
+    ]
     reply_markup = InlineKeyboardMarkup(build_menu(botones_secuencia, 3))
 
     await query.edit_message_text(
-        f"✅ Frente: {query.data}\nSelecciona Secuencia:",
+        f"✅ Frente: {frente}\nSelecciona Secuencia:",
         reply_markup=reply_markup
     )
     return ASK_SECUENCIA
@@ -538,8 +553,18 @@ async def choose_secuencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ La sesión expiró. Envía la foto nuevamente.")
         return ConversationHandler.END
 
-    secuencia = query.data
+    data = query.data or ""
+    if not data.startswith("SEC|"):
+        await query.edit_message_text("❌ Secuencia inválida.")
+        return ConversationHandler.END
+
+    secuencia = data.split("|", 1)[1]
+    if secuencia not in SECUENCIA_CHOICES:
+        await query.edit_message_text("❌ Secuencia no reconocida.")
+        return ConversationHandler.END
+
     pending["secuencia"] = secuencia
+    log.info(f"Secuencia seleccionada: {secuencia} | user={pending.get('usuario_id')}")
 
     if secuencia == "SOST":
         await query.edit_message_text(
@@ -753,15 +778,15 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).concurrent_updates(False).build()
 
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo)
         ],
         states={
-            ASK_FRENTE: [CallbackQueryHandler(choose_frente)],
-            ASK_SECUENCIA: [CallbackQueryHandler(choose_secuencia)],
+            ASK_FRENTE: [CallbackQueryHandler(choose_frente, pattern=r"^FRENTE\|")],
+            ASK_SECUENCIA: [CallbackQueryHandler(choose_secuencia, pattern=r"^SEC\|")],
             ASK_MR_UNICO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_unico)],
             ASK_MR_INICIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_inicio)],
             ASK_MR_FIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_mr_fin)],
