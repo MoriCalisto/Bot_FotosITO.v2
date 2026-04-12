@@ -15,21 +15,33 @@ from google.oauth2.service_account import Credentials
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    ConversationHandler, CallbackQueryHandler, ContextTypes, filters,
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ConversationHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
 )
 
 # =========================================================
 # CONFIG
 # =========================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
 
 if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
 
-# Rutas locales seguras para Render sin persistent disk
+# Múltiples admins: ejemplo "123456789,987654321"
+ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "").strip()
+ADMIN_IDS = set()
+if ADMIN_IDS_RAW:
+    for x in ADMIN_IDS_RAW.split(","):
+        x = x.strip()
+        if x.isdigit():
+            ADMIN_IDS.add(int(x))
+
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
 TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
 FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
@@ -83,17 +95,45 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+
 def start_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    log.info(f"Healthcheck HTTP server escuchando en 0.0.0.0:{PORT}")
     return server
+
 
 # =========================================================
 # HELPERS BOTONES
 # =========================================================
 def build_menu(buttons, n_cols):
     return [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
+
+
+# =========================================================
+# HELPERS GENERALES
+# =========================================================
+def frente_from_codigo(codigo: str) -> str:
+    if codigo.startswith("BR"):
+        return "BREMEN"
+    if codigo.startswith("TALL"):
+        return "TALLERES"
+    if codigo.startswith("LOE"):
+        return "LO ERRAZURIZ"
+    if codigo == "VEE":
+        return "VIA ENLACE EXISTENTE"
+    if codigo.startswith("RS"):
+        return "ROMAN SALINAS"
+    return "N/A"
+
+
+def ensure_saved(path: str) -> None:
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    if os.path.getsize(path) <= 0:
+        raise IOError("Archivo vacío")
+
 
 # =========================================================
 # GOOGLE SHEETS
@@ -115,9 +155,10 @@ def get_gspread_client():
 def get_registro_worksheet():
     client = get_gspread_client()
     sheet_name = os.getenv("GOOGLE_SHEET_NAME", "")
+    worksheet_name = os.getenv("GOOGLE_WORKSHEET_REGISTRO", "RegistroFotos")
     if not sheet_name:
         raise RuntimeError("Falta GOOGLE_SHEET_NAME en Render.")
-    return client.open(sheet_name).worksheet("RegistroFotos")
+    return client.open(sheet_name).worksheet(worksheet_name)
 
 def build_sheet_row(data: dict) -> list:
     return [
@@ -150,17 +191,13 @@ def build_sheet_row(data: dict) -> list:
         data.get("Observacion_Admin", ""),
     ]
 
+
 # =========================================================
 # ONEDRIVE / MSAL
 # =========================================================
 MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
 MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
-
-# IMPORTANTE:
-# No incluir offline_access / openid / profile aquí.
-# MSAL los maneja como reservados o automáticos.
 MS_SCOPES = ["Files.ReadWrite"]
-
 ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO")
 
 def load_cache():
@@ -210,18 +247,19 @@ def pop_flow(user_id: int):
 def get_flow(user_id: int):
     return PENDING_ONEDRIVE_FLOWS.get(str(user_id))
 
+def build_msal_app(cache=None):
+    return msal.PublicClientApplication(
+        MS_CLIENT_ID,
+        authority=f"https://login.microsoftonline.com/{MS_TENANT_ID}",
+        token_cache=cache
+    )
+
 def get_graph_token():
     if not MS_CLIENT_ID:
         raise RuntimeError("Falta MS_CLIENT_ID en Render.")
 
-    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     cache = load_cache()
-
-    app = msal.PublicClientApplication(
-        MS_CLIENT_ID,
-        authority=authority,
-        token_cache=cache
-    )
+    app = build_msal_app(cache)
 
     accounts = app.get_accounts()
     if not accounts:
@@ -257,30 +295,48 @@ def upload_to_onedrive(local_path: str, remote_dir: str, filename: str):
 
     return response.json()
 
+
 # =========================================================
 # DECORADOR ADMIN
 # =========================================================
 def admin_only(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.effective_user or update.effective_user.id != ADMIN_ID:
-            if update.message:
-                await update.message.reply_text("⛔ Acceso denegado.")
+        user = update.effective_user
+        if not user or user.id not in ADMIN_IDS:
+            if update.effective_message:
+                await update.effective_message.reply_text("⛔ Acceso denegado.")
             return
         return await func(update, context)
     return wrapper
+
 
 # =========================================================
 # COMANDOS
 # =========================================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hola. Envíame una foto para comenzar.")
+    await update.message.reply_text(
+        "👋 Hola. Envíame una foto para comenzar.\n\n"
+        "Comandos útiles:\n"
+        "/onedrive_status\n"
+        "/onedrive_login\n"
+        "/onedrive_finish"
+    )
 
 @admin_only
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🛠️ PANEL DE ADMINISTRADOR\n\nPróximamente más funciones..."
+    total_admins = len(ADMIN_IDS)
+    texto = (
+        "🛠️ PANEL DE ADMINISTRADOR\n\n"
+        f"Admins configurados: {total_admins}\n"
+        f"Tu ID: {update.effective_user.id}\n\n"
+        "Comandos disponibles:\n"
+        "/onedrive_status\n"
+        "/onedrive_login\n"
+        "/onedrive_finish\n"
+        "/admin"
     )
+    await update.message.reply_text(texto)
 
 async def cmd_onedrive_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -296,8 +352,8 @@ async def cmd_onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Falta MS_CLIENT_ID en Render.")
         return
 
-    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
-    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=authority)
+    cache = load_cache()
+    app = build_msal_app(cache)
 
     try:
         flow = app.initiate_device_flow(scopes=MS_SCOPES)
@@ -331,28 +387,22 @@ async def cmd_onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not flow:
         await update.message.reply_text(
             "⚠️ No encontré un login pendiente.\n"
-            "Puede que Render haya reiniciado el servicio o que el flujo haya expirado.\n"
+            "Puede que el flujo haya expirado.\n"
             "Vuelve a ejecutar /onedrive_login"
         )
         return
 
-    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     cache = load_cache()
-    app = msal.PublicClientApplication(
-        MS_CLIENT_ID,
-        authority=authority,
-        token_cache=cache
-    )
+    app = build_msal_app(cache)
 
     await update.message.reply_text("⏳ Verificando autorización en Microsoft...")
 
     try:
-        loop = asyncio.get_running_loop()
-
-        def do_finish():
-            return app.acquire_token_by_device_flow(flow, timeout=5)
-
-        result = await loop.run_in_executor(None, do_finish)
+        result = await asyncio.to_thread(
+            app.acquire_token_by_device_flow,
+            flow,
+            5
+        )
 
         if result and "access_token" in result:
             save_cache(cache)
@@ -377,6 +427,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("🛑 Cancelado. Envía una foto de nuevo.")
     return ConversationHandler.END
+
 
 # =========================================================
 # FLUJO PRINCIPAL FOTO
@@ -539,16 +590,16 @@ def build_file_name_for_storage(pending: dict) -> str:
     fecha = datetime.now().strftime("%Y%m%d")
     hora = datetime.now().strftime("%H%M%S")
     frente = pending.get("frente", "SIN-FRENTE").replace(" ", "_")
+    secuencia = pending.get("secuencia", "SIN-SEC").replace(" ", "_")
     usuario_id = pending.get("usuario_id", "0")
-    secuencia = pending.get("secuencia", "SIN-SEC")
 
-    mr = ""
+    mr = "SINMR"
     if pending.get("mr_unico"):
-        mr = f"_MR{pending['mr_unico']}"
+        mr = f"MR{pending['mr_unico']}"
     elif pending.get("mr_inicio") and pending.get("mr_fin"):
-        mr = f"_MR{pending['mr_inicio']}-{pending['mr_fin']}"
+        mr = f"MR{pending['mr_inicio']}-{pending['mr_fin']}"
 
-    return f"{fecha}_{hora}_{frente}_{secuencia}{mr}_{usuario_id}.jpg"
+    return f"{fecha}_{hora}_{frente}_{secuencia}_{mr}_{usuario_id}.jpg"
 
 async def finalize_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -675,20 +726,19 @@ async def finalize_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+
 # =========================================================
 # ERROR HANDLER
 # =========================================================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.error("Excepción no controlada", exc_info=context.error)
 
+
 # =========================================================
 # MAIN
 # =========================================================
 def main():
     start_health_server()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
 
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -708,6 +758,7 @@ def main():
         per_chat=True,
         per_user=True,
         per_message=False,
+        allow_reentry=True,
     )
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -720,7 +771,7 @@ def main():
     app.add_error_handler(error_handler)
 
     log.info("Bot iniciado...")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, close_loop=False)
 
 if __name__ == "__main__":
     main()
