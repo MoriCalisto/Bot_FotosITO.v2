@@ -33,15 +33,21 @@ PORT = int(os.getenv("PORT", "10000"))
 if not BOT_TOKEN:
     raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
 
-# Múltiples admins: ejemplo "123456789,987654321"
-ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "").strip()
+# Admins: soporta ADMIN_IDS="1,2,3" o ADMIN_ID="1"
 ADMIN_IDS = set()
-if ADMIN_IDS_RAW:
-    for x in ADMIN_IDS_RAW.split(","):
+_admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
+_admin_id_single = os.getenv("ADMIN_ID", "").strip()
+
+if _admin_ids_raw:
+    for x in _admin_ids_raw.split(","):
         x = x.strip()
         if x.isdigit():
             ADMIN_IDS.add(int(x))
 
+if _admin_id_single and _admin_id_single.isdigit():
+    ADMIN_IDS.add(int(_admin_id_single))
+
+# Rutas locales seguras para Render
 PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
 TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
 FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
@@ -140,7 +146,7 @@ def ensure_saved(path: str) -> None:
 # =========================================================
 GS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
 ]
 
 def get_gspread_client():
@@ -156,8 +162,10 @@ def get_registro_worksheet():
     client = get_gspread_client()
     sheet_name = os.getenv("GOOGLE_SHEET_NAME", "")
     worksheet_name = os.getenv("GOOGLE_WORKSHEET_REGISTRO", "RegistroFotos")
+
     if not sheet_name:
         raise RuntimeError("Falta GOOGLE_SHEET_NAME en Render.")
+
     return client.open(sheet_name).worksheet(worksheet_name)
 
 def build_sheet_row(data: dict) -> list:
@@ -195,10 +203,11 @@ def build_sheet_row(data: dict) -> list:
 # =========================================================
 # ONEDRIVE / MSAL
 # =========================================================
-MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
-MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
+MS_CLIENT_ID = (os.getenv("MS_CLIENT_ID", "") or os.getenv("CLIENT_ID", "")).strip()
+MS_TENANT_ID = (os.getenv("MS_TENANT_ID", "") or os.getenv("TENANT_ID", "") or "common").strip()
 MS_SCOPES = ["Files.ReadWrite"]
-ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO")
+
+ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO").strip()
 
 def load_cache():
     cache = msal.SerializableTokenCache()
@@ -251,12 +260,12 @@ def build_msal_app(cache=None):
     return msal.PublicClientApplication(
         MS_CLIENT_ID,
         authority=f"https://login.microsoftonline.com/{MS_TENANT_ID}",
-        token_cache=cache
+        token_cache=cache,
     )
 
 def get_graph_token():
     if not MS_CLIENT_ID:
-        raise RuntimeError("Falta MS_CLIENT_ID en Render.")
+        raise RuntimeError("Falta MS_CLIENT_ID o CLIENT_ID en Render.")
 
     cache = load_cache()
     app = build_msal_app(cache)
@@ -282,7 +291,7 @@ def upload_to_onedrive(local_path: str, remote_dir: str, filename: str):
     url = f"https://graph.microsoft.com/v1.0/me/drive/root:{remote_path}:/content"
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/octet-stream"
+        "Content-Type": "application/octet-stream",
     }
 
     with open(local_path, "rb") as f:
@@ -317,7 +326,10 @@ def admin_only(func):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hola. Envíame una foto para comenzar.\n\n"
-        "Comandos útiles:\n"
+        "Comandos principales:\n"
+        "/start\n"
+        "/cancel\n"
+        "/admin\n"
         "/onedrive_status\n"
         "/onedrive_login\n"
         "/onedrive_finish"
@@ -325,16 +337,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    total_admins = len(ADMIN_IDS)
     texto = (
         "🛠️ PANEL DE ADMINISTRADOR\n\n"
-        f"Admins configurados: {total_admins}\n"
+        f"Admins configurados: {len(ADMIN_IDS)}\n"
         f"Tu ID: {update.effective_user.id}\n\n"
-        "Comandos disponibles:\n"
+        "Comandos:\n"
+        "/admin\n"
         "/onedrive_status\n"
         "/onedrive_login\n"
         "/onedrive_finish\n"
-        "/admin"
+        "/cancel"
     )
     await update.message.reply_text(texto)
 
@@ -349,7 +361,7 @@ async def cmd_onedrive_status(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cmd_onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not MS_CLIENT_ID:
-        await update.message.reply_text("❌ Falta MS_CLIENT_ID en Render.")
+        await update.message.reply_text("❌ Falta MS_CLIENT_ID o CLIENT_ID en Render.")
         return
 
     cache = load_cache()
@@ -399,9 +411,7 @@ async def cmd_onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     try:
         result = await asyncio.to_thread(
-            app.acquire_token_by_device_flow,
-            flow,
-            5
+            lambda: app.acquire_token_by_device_flow(flow, timeout=5)
         )
 
         if result and "access_token" in result:
@@ -739,6 +749,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 def main():
     start_health_server()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     app = Application.builder().token(BOT_TOKEN).build()
 
