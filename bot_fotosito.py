@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 import os
 import json
@@ -31,9 +32,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
 
 if not BOT_TOKEN:
-    raise RuntimeError("Define BOT_TOKEN en Render (Environment > Secret).")
+    raise RuntimeError("Falta BOT_TOKEN en Render.")
 
-# Admins: soporta ADMIN_IDS="1,2,3" o ADMIN_ID="1"
+# Admins: soporta ADMIN_IDS="1,2,3" y/o ADMIN_ID="1"
 ADMIN_IDS = set()
 _admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
 _admin_id_single = os.getenv("ADMIN_ID", "").strip()
@@ -47,9 +48,12 @@ if _admin_ids_raw:
 if _admin_id_single and _admin_id_single.isdigit():
     ADMIN_IDS.add(int(_admin_id_single))
 
-PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos")
-TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin")
-FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json")
+# Rutas locales
+PHOTO_SAVE_ROOT = os.getenv("PHOTO_SAVE_ROOT", "./data/photos").strip()
+TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./data/token_cache.bin").strip()
+FLOW_STORE_PATH = os.getenv("FLOW_STORE_PATH", "./data/pending_onedrive_flows.json").strip()
+CSV_LOG = os.path.join(PHOTO_SAVE_ROOT, "registro_fotos.csv")
+CSV_HEADER = "Archivo,Frente,Ubicacion,FechaHora\n"
 
 os.makedirs(PHOTO_SAVE_ROOT, exist_ok=True)
 
@@ -61,6 +65,7 @@ flow_dir = os.path.dirname(FLOW_STORE_PATH)
 if flow_dir:
     os.makedirs(flow_dir, exist_ok=True)
 
+# Catálogos
 FRENTE_CHOICES = [
     "VEE", "BR-OR", "BR-PON", "BR-SUP",
     "TALL-SUP", "TALL-OR", "TALL-PON",
@@ -71,6 +76,7 @@ FRENTE_CHOICES = [
 
 SECUENCIA_CHOICES = ["SOST", "REV", "CB", "OQUEDAD", "LANZA", "DET"]
 
+# Estados conversación
 ASK_FRENTE = 0
 ASK_SECUENCIA = 1
 ASK_MR_UNICO = 2
@@ -110,15 +116,12 @@ def start_health_server():
 
 
 # =========================================================
-# HELPERS BOTONES
+# HELPERS
 # =========================================================
 def build_menu(buttons, n_cols):
     return [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
 
 
-# =========================================================
-# HELPERS GENERALES
-# =========================================================
 def frente_from_codigo(codigo: str) -> str:
     if codigo.startswith("BR"):
         return "BREMEN"
@@ -140,6 +143,15 @@ def ensure_saved(path: str) -> None:
         raise IOError("Archivo vacío")
 
 
+def ensure_csv():
+    if not os.path.exists(CSV_LOG):
+        with open(CSV_LOG, "w", encoding="utf-8") as f:
+            f.write(CSV_HEADER)
+
+
+ensure_csv()
+
+
 # =========================================================
 # GOOGLE SHEETS
 # =========================================================
@@ -159,8 +171,8 @@ def get_gspread_client():
 
 def get_registro_worksheet():
     client = get_gspread_client()
-    sheet_name = os.getenv("GOOGLE_SHEET_NAME", "")
-    worksheet_name = os.getenv("GOOGLE_WORKSHEET_REGISTRO", "RegistroFotos")
+    sheet_name = os.getenv("GOOGLE_SHEET_NAME", "").strip()
+    worksheet_name = os.getenv("GOOGLE_WORKSHEET_REGISTRO", "RegistroFotos").strip()
 
     if not sheet_name:
         raise RuntimeError("Falta GOOGLE_SHEET_NAME en Render.")
@@ -326,12 +338,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Hola. Envíame una foto para comenzar.\n\n"
         "Comandos principales:\n"
         "/start\n"
+        "/ping\n"
         "/cancel\n"
         "/admin\n"
         "/onedrive_status\n"
         "/onedrive_login\n"
         "/onedrive_finish"
     )
+
+async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🏓 Bot activo.")
 
 @admin_only
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -753,9 +769,7 @@ async def finalize_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         log.error(f"Error crítico en finalize_record: {e}", exc_info=True)
-        await update.message.reply_text(
-            f"❌ Error interno del bot.\nDetalle: {str(e)}"
-        )
+        await update.message.reply_text(f"❌ Error interno del bot.\nDetalle: {str(e)}")
     finally:
         context.user_data.clear()
 
@@ -793,13 +807,14 @@ def main():
             ASK_COMENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_comentario)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
         per_chat=True,
         per_user=True,
         per_message=False,
-        allow_reentry=True,
     )
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("admin", cmd_admin))
     app.add_handler(CommandHandler("onedrive_status", cmd_onedrive_status))
     app.add_handler(CommandHandler("onedrive_login", cmd_onedrive_login))
@@ -809,7 +824,7 @@ def main():
     app.add_error_handler(error_handler)
 
     log.info("Bot iniciado...")
-    app.run_polling(drop_pending_updates=True, close_loop=False)
+    app.run_polling(drop_pending_updates=False, close_loop=False)
 
 if __name__ == "__main__":
     main()
