@@ -412,7 +412,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Sin obstrucciones\n\n"
 
         "<b>🎮 Comandos útiles:</b>\n"
-        "/cancel → cancelar registro actual"\n"
+        "/cancel → cancelar registro actual\n"
         "/help → glosario BOT"        
     )
 
