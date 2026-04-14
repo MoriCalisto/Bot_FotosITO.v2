@@ -394,12 +394,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• REV → Revestimiento\n"
         "• CB → Contrabóveda\n"
         "• OQUEDAD → Desprendimientos o Condición terreno\n"
-        "• LANZA → Lanzas / INI´s\n"
+        "• LANZA → Lanzas / Intrucciones de Ingenieria\n"
         "• DET → Detención\n\n"
 
         "<b>🔢 Número de marco:</b>\n"
-        "Identificador del punto exacto del túnel donde se ejecuta la actividad.\n\n"
-
+        "Debe ingresar solo números (ej: 123).\n"
+        "No usar letras ni texto.\n\n"
+        
         "<b>✏️ Ingreso de datos:</b>\n"
         "• SOST → 1 marco\n"
         "• REV / CB → rango de marco inicio-fin\n"
