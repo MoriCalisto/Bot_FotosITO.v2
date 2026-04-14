@@ -407,7 +407,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Otros → comentario o '.' para omitir\n\n"
 
         "<b>📸 Fotografía:</b>\n"
-        "• Ideal: ~6 marcos\n"
+        "• Ideal: ~5 a 7 marcos visibles\n"
         "• Clara y enfocada\n"
         "• Sin obstrucciones\n\n"
 
