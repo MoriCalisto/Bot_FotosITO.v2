@@ -333,6 +333,10 @@ def admin_only(func):
 # =========================================================
 # COMANDOS
 # =========================================================
+
+# =========================================================
+# START / HELP
+# =========================================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
@@ -357,56 +361,60 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard
     )
 
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
         "📘 <b>Glosario – Bot Fotos ITO</b>\n\n"
 
         "<b>🏷️ Frentes principales:</b>\n"
-        "• <b>Bremen</b>: sector Bremen\n"
-        "• <b>Talleres</b>: sector Talleres\n"
-        "• <b>Lo Errázuriz</b>: sector Lo Errázuriz\n"
-        "• <b>Vía Enlace Existente (VEE)</b>: sector de enlace existente\n"
-        "• <b>Román Salinas</b>: sector Román Salinas\n\n"
+        "• Bremen\n"
+        "• Talleres\n"
+        "• Lo Errázuriz\n"
+        "• Vía Enlace Existente (VEE)\n"
+        "• Román Salinas\n\n"
 
-        "<b>📍 Subsectores / ubicaciones:</b>\n"
-        "• <b>Superficie</b>: trabajos o registros en superficie\n"
-        "• <b>Oriente</b>: lado oriente del frente\n"
-        "• <b>Poniente</b>: lado poniente del frente\n"
-        "• <b>Túnel Estación A</b>: sector TEA\n"
-        "• <b>Túnel Estación B</b>: sector TEB\n"
-        "• <b>Túnel Estación C</b>: sector TEC\n\n"
+        "<b>📍 Subsectores:</b>\n"
+        "• Superficie\n"
+        "• Oriente\n"
+        "• Poniente\n"
+        "• Túnel Estación A (TEA)\n"
+        "• Túnel Estación B (TEB)\n"
+        "• Túnel Estación C (TEC)\n\n"
 
         "<b>🧩 Secuencias:</b>\n"
-        "• <b>SOST</b>: Sostenimiento\n"
-        "• <b>REV</b>: Revestimiento\n"
-        "• <b>CB</b>: Contrabóveda\n"
-        "• <b>OQUEDAD</b>: Desprendimientos o condiciones del Terreno\n"
-        "• <b>LANZA</b>: lanzas / marchiavantis / trabajos asociados\n"
-        "• <b>DET</b>: Detención o interrupción de actividad\n\n"
+        "• SOST → Sostenimiento\n"
+        "• REV → Revestimiento\n"
+        "• CB → Contrabóveda\n"
+        "• OQUEDAD → Desprendimientos o Condición terreno\n"
+        "• LANZA → Lanzas / Marchiavantis / Instrucciones de Ingeniería\n"
+        "• DET → Detención\n\n"
 
-        "<b>✏️ Qué debe ingresar el usuario:</b>\n"
-        "• <b>SOST</b> → un numero de marco único\n"
-        "• <b>REV / CB</b> → rango de marco inicio y marco fin\n"
-        "• <b>OQUEDAD / LANZA / DET</b> → comentario o '-' para omitir\n\n"
+        "<b>🔢 Número de marco:</b>\n"
+        "Identificador del punto exacto del túnel donde se ejecuta la actividad.\n\n"
 
-        "<b>📸 Estándar de fotografía:</b>\n"
-        "• Idealmente abarcar ~6 marcos\n"
-        "• Foto clara y enfocada\n"
-        "• Evitar obstrucciones y baja iluminación\n\n"
+        "<b>✏️ Ingreso de datos:</b>\n"
+        "• SOST → 1 marco\n"
+        "• REV / CB → rango inicio-fin\n"
+        "• Otros → comentario o '-' para omitir\n\n"
 
-        "<b>Comando útil:</b>\n"
-        "/cancel → cancelar el registro actual"
+        "<b>📸 Fotografía:</b>\n"
+        "• Ideal: ~6 marcos\n"
+        "• Clara y enfocada\n"
+        "• Sin obstrucciones\n\n"
+
+        "/cancel → cancelar registro"
     )
+
+    if update.message:
+        await update.message.reply_text(mensaje, parse_mode="HTML")
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(mensaje, parse_mode="HTML")
+
 
 async def cb_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await cmd_help(update, context)
-    
-    if update.message:
-        await update.message.reply_text(mensaje, parse_mode="HTML")
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(mensaje, parse_mode="HTML")
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🏓 Bot activo.")
