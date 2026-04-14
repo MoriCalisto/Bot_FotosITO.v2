@@ -364,8 +364,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
-        "📘 <b>Glosario – Bot Fotos ITO</b>\n\n"
+        "📘 <b>AYUDA – Bot Fotos ITO v2</b>\n\n"
 
+        "<b>🔄 Flujo de uso:</b>\n"
+        "1. 📸 Enviar foto\n"
+        "2. 🏷️ Seleccionar frente\n"
+        "3. 🧩 Seleccionar secuencia\n"
+        "4. ✏️ Ingresar marco o comentario\n"
+        "5. ✅ Registro automático en sistema\n\n"
+
+        
         "<b>🏷️ Frentes principales:</b>\n"
         "• Bremen\n"
         "• Talleres\n"
@@ -386,7 +394,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• REV → Revestimiento\n"
         "• CB → Contrabóveda\n"
         "• OQUEDAD → Desprendimientos o Condición terreno\n"
-        "• LANZA → Lanzas / Marchiavantis / Instrucciones de Ingeniería\n"
+        "• LANZA → Lanzas / INI´s\n"
         "• DET → Detención\n\n"
 
         "<b>🔢 Número de marco:</b>\n"
@@ -394,17 +402,19 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         "<b>✏️ Ingreso de datos:</b>\n"
         "• SOST → 1 marco\n"
-        "• REV / CB → rango inicio-fin\n"
-        "• Otros → comentario o '-' para omitir\n\n"
+        "• REV / CB → rango de marco inicio-fin\n"
+        "• Otros → comentario o '.' para omitir\n\n"
 
         "<b>📸 Fotografía:</b>\n"
         "• Ideal: ~6 marcos\n"
         "• Clara y enfocada\n"
         "• Sin obstrucciones\n\n"
 
-        "/cancel → cancelar registro"
+        "<b>🎮 Comando útil:</b>\n"
+        "/cancel → cancelar registro actual"
     )
 
+        
     if update.message:
         await update.message.reply_text(mensaje, parse_mode="HTML")
     elif update.callback_query:
