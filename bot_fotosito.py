@@ -11,6 +11,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import requests
 import msal
 
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -37,7 +42,7 @@ FLASH_GROUP_CHAT_ID = os.getenv("FLASH_GROUP_CHAT_ID", "")
 
 MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
 MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
-MS_SCOPES = ["Files.ReadWrite"]
+MS_SCOPES = ["Files.ReadWrite", "offline_access", "User.Read"]
 ONEDRIVE_ROOT = os.getenv("ONEDRIVE_ROOT", "Bot_FotosITO")
 TOKEN_CACHE_PATH = os.getenv("TOKEN_CACHE_PATH", "./token_cache.bin")
 
@@ -74,9 +79,13 @@ EVENTOS_FLASH = [
 CSV_LOG = os.path.join(PHOTO_SAVE_ROOT, "registro_fotos.csv")
 CSV_HEADER = "Archivo,Frente,Ubicacion,FechaHora\n"
 
-FLASH_CSV = os.path.join(FLASH_SAVE_ROOT, "flash_reportes.csv")
+FLASH_XLSX = os.path.join(FLASH_SAVE_ROOT, "Flash_Reportes.xlsx")
+FLASH_SHEET = "Registro_Flash"
+
 FLASH_HEADER = [
     "ID",
+    "Fecha",
+    "Hora",
     "FechaHora",
     "Inspector",
     "UsuarioID",
@@ -85,6 +94,7 @@ FLASH_HEADER = [
     "Evento",
     "Detalle",
     "Foto",
+    "Estado",
 ]
 
 # =============== LOGGING ===============
@@ -113,22 +123,135 @@ def start_health():
     log.info(f"Healthcheck OK puerto {PORT}")
 
 
-# =============== CSV ===============
+# =============== CSV FOTO ===============
 def ensure_csv():
     if not os.path.exists(CSV_LOG):
         with open(CSV_LOG, "w", encoding="utf-8") as f:
             f.write(CSV_HEADER)
 
 
-def ensure_flash_csv():
-    if not os.path.exists(FLASH_CSV):
-        with open(FLASH_CSV, "w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(FLASH_HEADER)
-
-
 ensure_csv()
-ensure_flash_csv()
+
+
+# =============== EXCEL FLASH ===============
+def ensure_flash_xlsx():
+    if os.path.exists(FLASH_XLSX):
+        return
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = FLASH_SHEET
+
+    ws.append(FLASH_HEADER)
+
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    thin = Side(style="thin", color="D9E2F3")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    widths = {
+        "A": 18,
+        "B": 14,
+        "C": 12,
+        "D": 22,
+        "E": 28,
+        "F": 14,
+        "G": 18,
+        "H": 22,
+        "I": 28,
+        "J": 55,
+        "K": 45,
+        "L": 16,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:L1"
+
+    wb.save(FLASH_XLSX)
+
+
+def format_flash_xlsx():
+    wb = load_workbook(FLASH_XLSX)
+    ws = wb[FLASH_SHEET]
+
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    row_fill = PatternFill("solid", fgColor="F8FAFC")
+    thin = Side(style="thin", color="D9E2F3")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    max_row = ws.max_row
+    max_col = ws.max_column
+
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    for row in ws.iter_rows(min_row=2, max_row=max_row, max_col=max_col):
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            if cell.row % 2 == 0:
+                cell.fill = row_fill
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{max_row}"
+
+    widths = {
+        "A": 18,
+        "B": 14,
+        "C": 12,
+        "D": 22,
+        "E": 28,
+        "F": 14,
+        "G": 18,
+        "H": 22,
+        "I": 28,
+        "J": 55,
+        "K": 45,
+        "L": 16,
+    }
+
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+
+    ws.row_dimensions[1].height = 24
+
+    for r in range(2, max_row + 1):
+        ws.row_dimensions[r].height = 36
+
+    # Crear/actualizar tabla
+    table_ref = f"A1:L{max_row}"
+
+    if "TablaFlash" not in ws.tables:
+        tab = Table(displayName="TablaFlash", ref=table_ref)
+        style = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        tab.tableStyleInfo = style
+        ws.add_table(tab)
+    else:
+        ws.tables["TablaFlash"].ref = table_ref
+
+    wb.save(FLASH_XLSX)
+
+
+ensure_flash_xlsx()
 
 
 # =============== UTILS ===============
@@ -210,17 +333,23 @@ def get_inspector_name(user) -> str:
 # =============== TOKEN CACHE ===============
 def load_cache():
     cache = msal.SerializableTokenCache()
+
     if os.path.exists(TOKEN_CACHE_PATH):
         try:
             with open(TOKEN_CACHE_PATH, "r", encoding="utf-8") as f:
                 cache.deserialize(f.read())
         except Exception:
             pass
+
     return cache
 
 
 def save_cache(cache):
     if cache.has_state_changed:
+        folder = os.path.dirname(TOKEN_CACHE_PATH)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+
         with open(TOKEN_CACHE_PATH, "w", encoding="utf-8") as f:
             f.write(cache.serialize())
 
@@ -253,7 +382,16 @@ def get_graph_token():
 
 def upload_to_onedrive(local_path, folder, filename):
     token = get_graph_token()
-    url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{ONEDRIVE_ROOT}/{folder}/{filename}:/content"
+
+    root = ONEDRIVE_ROOT.strip("/")
+    folder = folder.strip("/")
+
+    if folder:
+        remote_path = f"{root}/{folder}/{filename}"
+    else:
+        remote_path = f"{root}/{filename}"
+
+    url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{remote_path}:/content"
 
     with open(local_path, "rb") as f:
         r = requests.put(
@@ -280,16 +418,19 @@ async def onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     flow = app.initiate_device_flow(scopes=MS_SCOPES)
 
     if "user_code" not in flow:
-        await update.message.reply_text("❌ Error iniciando login de OneDrive")
+        await update.message.reply_text("❌ Error iniciando login de OneDrive.")
         return
 
     PENDING_ONEDRIVE_FLOWS[str(update.effective_chat.id)] = (app, flow, cache)
 
     await update.message.reply_text(
-        "🔐 Autorización iniciada.\n\n"
-        f"{flow['message']}\n\n"
-        "Cuando Microsoft te diga que cierres la ventana, vuelve aquí y ejecuta:\n"
-        "/onedrive_finish"
+        "🔐 AUTORIZACIÓN ONEDRIVE\n\n"
+        "1️⃣ Abre el enlace que te entrega Microsoft.\n"
+        "2️⃣ Ingresa el código mostrado.\n"
+        "3️⃣ Inicia sesión y acepta permisos.\n"
+        "4️⃣ Cuando Microsoft confirme, vuelve aquí y ejecuta:\n\n"
+        "/onedrive_finish\n\n"
+        f"{flow['message']}"
     )
 
 
@@ -300,25 +441,25 @@ async def onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
 
     if chat_id not in PENDING_ONEDRIVE_FLOWS:
-        await update.message.reply_text("Primero ejecuta /onedrive_login")
+        await update.message.reply_text("⚠️ Primero ejecuta /onedrive_login.")
         return
 
     app, flow, cache = PENDING_ONEDRIVE_FLOWS[chat_id]
 
-    await update.message.reply_text("⏳ Finalizando autorización...")
+    await update.message.reply_text("⏳ Finalizando autorización OneDrive...")
 
     try:
         result = await asyncio.to_thread(app.acquire_token_by_device_flow, flow)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error al finalizar autorización: {e}")
+        await update.message.reply_text(f"❌ Error al finalizar autorización:\n{e}")
         return
 
     if "access_token" in result:
         save_cache(cache)
         PENDING_ONEDRIVE_FLOWS.pop(chat_id, None)
-        await update.message.reply_text("✅ OneDrive listo")
+        await update.message.reply_text("✅ OneDrive autorizado correctamente.")
     else:
-        detalle = result.get("error_description", "sin detalle")
+        detalle = result.get("error_description", "Sin detalle.")
         await update.message.reply_text(f"❌ Error en autorización:\n{detalle}")
 
 
@@ -328,38 +469,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
-        "🤖 BOT FOTOS ITO / INFORME FLASH\n\n"
-        "📸 REGISTRO DE FOTOS\n"
-        "1. Envía una foto al bot.\n"
-        "2. El bot mostrará botones de frente.\n"
-        "3. Selecciona el frente correspondiente.\n"
-        "4. La foto se guarda y se intenta subir a OneDrive.\n\n"
-        "🚨 INFORME FLASH\n"
-        "Usa el comando:\n"
+        "🤖 *BOT FOTOS ITO + REPORTES FLASH EL6*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Este bot permite registrar evidencia fotográfica y emitir reportes flash de eventos críticos en terreno.\n\n"
+
+        "📸 *1. REGISTRO DE FOTOS*\n"
+        "Uso rápido:\n"
+        "1️⃣ Envía una foto directamente al bot.\n"
+        "2️⃣ El bot mostrará botones con los frentes disponibles.\n"
+        "3️⃣ Selecciona el frente correspondiente.\n"
+        "4️⃣ El bot guardará la imagen y registrará la información.\n"
+        "5️⃣ Si OneDrive está autorizado, subirá automáticamente la foto.\n\n"
+
+        "Frentes disponibles para fotos:\n"
+        "• BR-OR\n"
+        "• BR-PON\n"
+        "• TALL-OR\n"
+        "• TALL-PON\n"
+        "• LOE-OR\n"
+        "• LOE-PON\n\n"
+
+        "🚨 *2. INFORME FLASH*\n"
+        "Comando:\n"
         "/flash\n\n"
-        "Luego completa:\n"
-        "1. Pique\n"
-        "2. Frente\n"
-        "3. Evento\n"
-        "4. Detalle escrito\n"
-        "5. Foto opcional o botón 'Sin foto'\n\n"
-        "📌 Eventos disponibles:\n"
-        "- Desprendimientos\n"
-        "- Inundación\n"
-        "- Sobreexcavación\n"
-        "- Tiempo Frente Abierta\n"
-        "- Falta Alzaprima\n"
-        "- No aplicación de 5cm\n"
-        "- Otro\n\n"
-        "📤 Al finalizar, el bot guarda el registro y envía el reporte al grupo configurado.\n\n"
-        "Otros comandos:\n"
+        "El bot te pedirá:\n"
+        "🏗️ Pique\n"
+        "📍 Frente\n"
+        "⚠️ Tipo de evento\n"
+        "📝 Detalle escrito\n"
+        "📸 Foto opcional\n\n"
+
+        "Eventos disponibles:\n"
+        "⚠️ Desprendimientos\n"
+        "💧 Inundación\n"
+        "⛏️ Sobreexcavación\n"
+        "⏱️ Tiempo Frente Abierta\n"
+        "🧱 Falta Alzaprima\n"
+        "🚧 No aplicación de 5cm\n"
+        "➕ Otro\n\n"
+
+        "Al finalizar, el bot realiza automáticamente:\n"
+        "✅ Guarda el registro en Excel\n"
+        "✅ Guarda la foto si corresponde\n"
+        "✅ Envía el reporte al grupo Reportes Flash\n"
+        "✅ Sube el Excel y la foto a OneDrive si está autorizado\n\n"
+
+        "📊 *Archivo generado:*\n"
+        "Flash_Reportes.xlsx\n\n"
+
+        "🔐 *3. AUTORIZACIÓN ONEDRIVE*\n"
+        "Usar solo cuando sea necesario volver a conectar OneDrive:\n"
+        "/onedrive_login\n"
+        "/onedrive_finish\n\n"
+
+        "🛠️ *4. OTROS COMANDOS*\n"
         "/idchat → obtener ID del chat o grupo\n"
         "/cancel → cancelar proceso actual\n"
-        "/onedrive_login → iniciar autorización OneDrive\n"
-        "/onedrive_finish → terminar autorización OneDrive"
+        "/help → mostrar esta ayuda\n\n"
+
+        "✅ *Recomendación de uso:*\n"
+        "Para reportes críticos, usa siempre /flash y agrega foto cuando exista evidencia en terreno."
     )
 
-    await update.message.reply_text(texto)
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 async def idchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -396,7 +568,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton(x, callback_data=x)] for x in PRINCIPAL_CHOICES]
 
     await update.message.reply_text(
-        "Selecciona frente",
+        "📸 Foto recibida.\n\nSelecciona el frente correspondiente:",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -427,14 +599,16 @@ async def choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         upload_to_onedrive(full, frente, nombre)
-        msg = "☁️ Subido a OneDrive"
+        msg = "☁️ Subido a OneDrive."
     except Exception as e:
-        msg = f"⚠️ {e}"
+        msg = f"⚠️ Foto guardada localmente, pero no se pudo subir a OneDrive:\n{e}"
 
     context.user_data.clear()
 
     await q.edit_message_text(
-        f"✅ {nombre}\n{msg}"
+        f"✅ Foto registrada correctamente.\n\n"
+        f"Archivo:\n{nombre}\n\n"
+        f"{msg}"
     )
 
     return ConversationHandler.END
@@ -451,6 +625,8 @@ async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["flash"] = {
         "id": now.strftime("%Y%m%d%H%M%S"),
+        "fecha": now.strftime("%Y-%m-%d"),
+        "hora": now.strftime("%H:%M:%S"),
         "fecha_hora": now.strftime("%Y-%m-%d %H:%M:%S"),
         "inspector": get_inspector_name(user),
         "usuario_id": str(user.id) if user else "",
@@ -460,11 +636,15 @@ async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "detalle": "",
         "foto": "",
         "foto_path": "",
+        "estado": "Emitido",
     }
 
     await update.message.reply_text(
-        "🚨 INFORME FLASH\n\nSelecciona el PIQUE:",
+        "🚨 *INFORME FLASH*\n\n"
+        "Paso 1 de 5\n"
+        "Selecciona el *PIQUE*:",
         reply_markup=build_keyboard(PIQUES, "flash_pique", cols=2),
+        parse_mode="Markdown",
     )
 
     return FLASH_PIQUE
@@ -482,7 +662,9 @@ async def flash_pique(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["flash"]["pique"] = pique
 
     await q.edit_message_text(
-        f"🏗️ Pique seleccionado: {pique}\n\nAhora selecciona el FRENTE:",
+        f"🏗️ Pique seleccionado: {pique}\n\n"
+        "Paso 2 de 5\n"
+        "Selecciona el FRENTE:",
         reply_markup=build_keyboard(FRENTES, "flash_frente", cols=2),
     )
 
@@ -501,7 +683,9 @@ async def flash_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["flash"]["frente"] = frente
 
     await q.edit_message_text(
-        f"📍 Frente seleccionado: {frente}\n\nAhora selecciona el EVENTO:",
+        f"📍 Frente seleccionado: {frente}\n\n"
+        "Paso 3 de 5\n"
+        "Selecciona el EVENTO:",
         reply_markup=build_keyboard(EVENTOS_FLASH, "flash_evento", cols=1),
     )
 
@@ -521,7 +705,8 @@ async def flash_evento(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await q.edit_message_text(
         f"⚠️ Evento seleccionado: {evento}\n\n"
-        "Ahora escribe el detalle del informe Flash.\n\n"
+        "Paso 4 de 5\n"
+        "Escribe el detalle del informe.\n\n"
         "Ejemplo:\n"
         "Frente abierto desde las 10:30 hrs, sin aplicación de shotcrete de 5 cm."
     )
@@ -551,7 +736,8 @@ async def flash_detalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     await update.message.reply_text(
-        "📸 Ahora puedes enviar una foto como respaldo.\n\n"
+        "📸 Paso 5 de 5\n\n"
+        "Envía una foto como respaldo.\n\n"
         "Si no tienes foto, presiona:",
         reply_markup=keyboard,
     )
@@ -607,22 +793,29 @@ async def flash_sin_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await finalizar_flash(update, context)
 
 
-def guardar_flash_csv(flash: dict):
-    ensure_flash_csv()
+def guardar_flash_xlsx(flash: dict):
+    ensure_flash_xlsx()
 
-    with open(FLASH_CSV, "a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            flash["id"],
-            flash["fecha_hora"],
-            flash["inspector"],
-            flash["usuario_id"],
-            flash["pique"],
-            flash["frente"],
-            flash["evento"],
-            flash["detalle"],
-            flash["foto"],
-        ])
+    wb = load_workbook(FLASH_XLSX)
+    ws = wb[FLASH_SHEET]
+
+    ws.append([
+        flash["id"],
+        flash["fecha"],
+        flash["hora"],
+        flash["fecha_hora"],
+        flash["inspector"],
+        flash["usuario_id"],
+        flash["pique"],
+        flash["frente"],
+        flash["evento"],
+        flash["detalle"],
+        flash["foto"],
+        flash["estado"],
+    ])
+
+    wb.save(FLASH_XLSX)
+    format_flash_xlsx()
 
 
 def mensaje_flash(flash: dict) -> str:
@@ -649,22 +842,22 @@ async def finalizar_flash(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ No encuentro el informe Flash pendiente. Usa /flash nuevamente.")
         return ConversationHandler.END
 
-    guardar_flash_csv(flash)
+    guardar_flash_xlsx(flash)
 
     onedrive_msg = ""
 
     try:
-        upload_to_onedrive(FLASH_CSV, "Flash_Reportes", "flash_reportes.csv")
-        onedrive_msg += "\n☁️ CSV actualizado en OneDrive."
+        upload_to_onedrive(FLASH_XLSX, "Flash_Reportes", "Flash_Reportes.xlsx")
+        onedrive_msg += "\n☁️ Excel Flash actualizado en OneDrive."
     except Exception as e:
-        onedrive_msg += f"\n⚠️ CSV guardado localmente, pero no se pudo subir a OneDrive: {e}"
+        onedrive_msg += f"\n⚠️ Excel guardado localmente, pero no se pudo subir a OneDrive:\n{e}"
 
     if flash.get("foto_path"):
         try:
             upload_to_onedrive(flash["foto_path"], "Flash_Reportes/Fotos", flash["foto"])
             onedrive_msg += "\n☁️ Foto Flash subida a OneDrive."
         except Exception as e:
-            onedrive_msg += f"\n⚠️ Foto guardada localmente, pero no se pudo subir a OneDrive: {e}"
+            onedrive_msg += f"\n⚠️ Foto guardada localmente, pero no se pudo subir a OneDrive:\n{e}"
 
     texto = mensaje_flash(flash)
 
@@ -709,7 +902,7 @@ async def finalizar_flash(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🛑 Cancelado")
+    await update.message.reply_text("🛑 Proceso cancelado.")
     return ConversationHandler.END
 
 
