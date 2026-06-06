@@ -748,9 +748,9 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel), CommandHandler("reset", reset_cmd)], allow_reentry=True)
     for cmd, fn in [("start", start), ("menu", menu_cmd), ("help", help_cmd), ("status", status_cmd), ("testgrupo", testgrupo_cmd), ("idchat", idchat), ("reset", reset_cmd), ("cancel", cancel), ("dashboard", dashboard_cmd), ("estadisticas", estadisticas_cmd), ("buscar", buscar_cmd), ("flashs", flashs_cmd), ("usuarios", usuarios_cmd), ("onedrive_login", onedrive_login), ("onedrivelogin", onedrive_login), ("onedrive_finish", onedrive_finish)]:
         app.add_handler(CommandHandler(cmd, fn))
-    app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu_"))
     app.add_handler(flash_conv)
     app.add_handler(photo_conv)
+    app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu_"))
     app.run_polling()
 
 if __name__ == "__main__":
