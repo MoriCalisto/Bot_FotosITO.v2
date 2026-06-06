@@ -486,16 +486,39 @@ async def usuarios_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await target.reply_text(texto, parse_mode="Markdown")
 
 async def onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
     if not MS_CLIENT_ID:
         await update.message.reply_text("❌ Falta MS_CLIENT_ID en Render.")
         return
-    cache = load_cache(); app = build_msal_app(cache); flow = app.initiate_device_flow(scopes=MS_SCOPES)
-    if "user_code" not in flow:
-        await update.message.reply_text(f"❌ Error iniciando login de OneDrive:\n{flow.get('error_description', str(flow))}")
-        return
-    PENDING_ONEDRIVE_FLOWS[str(update.effective_chat.id)] = (app, flow, cache)
-    await update.message.reply_text("🔐 *AUTORIZACIÓN ONEDRIVE*\n\n1️⃣ Abre el enlace indicado por Microsoft.\n2️⃣ Ingresa el código.\n3️⃣ Inicia sesión.\n4️⃣ Acepta permisos.\n5️⃣ Vuelve aquí y ejecuta:\n\n/onedrive_finish\n\n" + flow['message'], parse_mode="Markdown")
 
+    try:
+        cache = load_cache()
+        app = build_msal_app(cache)
+        flow = app.initiate_device_flow(scopes=MS_SCOPES)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error creando flujo OneDrive:\n{e}")
+        return
+
+    if "user_code" not in flow:
+        await update.message.reply_text(
+            f"❌ Error iniciando login de OneDrive:\n{flow.get('error_description', str(flow))}"
+        )
+        return
+
+    PENDING_ONEDRIVE_FLOWS[str(update.effective_chat.id)] = (app, flow, cache)
+
+    await update.message.reply_text(
+        "🔐 AUTORIZACIÓN ONEDRIVE\n\n"
+        "1️⃣ Abre el enlace indicado por Microsoft.\n"
+        "2️⃣ Ingresa el código.\n"
+        "3️⃣ Inicia sesión.\n"
+        "4️⃣ Acepta permisos.\n"
+        "5️⃣ Cuando Microsoft confirme, vuelve aquí y ejecuta:\n\n"
+        "/onedrive_finish\n\n"
+        f"{flow['message']}"
+    )
 async def onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in PENDING_ONEDRIVE_FLOWS:
@@ -715,7 +738,7 @@ def main():
         entry_points=[CommandHandler("flash", flash_inicio)],
         states={FLASH_PIQUE:[CallbackQueryHandler(flash_pique, pattern=r"^flash_pique\|")], FLASH_FRENTE:[CallbackQueryHandler(flash_frente, pattern=r"^flash_frente\|")], FLASH_EVENTO:[CallbackQueryHandler(flash_evento, pattern=r"^flash_evento\|")], FLASH_DETALLE:[MessageHandler(filters.TEXT & ~filters.COMMAND, flash_detalle)], FLASH_FOTO:[MessageHandler(filters.PHOTO, flash_recibe_foto), CallbackQueryHandler(flash_sin_foto, pattern=r"^flash_sin_foto$")]},
         fallbacks=[CommandHandler("cancel", cancel), CommandHandler("reset", reset_cmd)], allow_reentry=True)
-    for cmd, fn in [("start", start), ("menu", menu_cmd), ("help", help_cmd), ("status", status_cmd), ("testgrupo", testgrupo_cmd), ("idchat", idchat), ("reset", reset_cmd), ("cancel", cancel), ("dashboard", dashboard_cmd), ("estadisticas", estadisticas_cmd), ("buscar", buscar_cmd), ("flashs", flashs_cmd), ("usuarios", usuarios_cmd), ("onedrive_login", onedrive_login), ("onedrive_finish", onedrive_finish)]:
+    for cmd, fn in [("start", start), ("menu", menu_cmd), ("help", help_cmd), ("status", status_cmd), ("testgrupo", testgrupo_cmd), ("idchat", idchat), ("reset", reset_cmd), ("cancel", cancel), ("dashboard", dashboard_cmd), ("estadisticas", estadisticas_cmd), ("buscar", buscar_cmd), ("flashs", flashs_cmd), ("usuarios", usuarios_cmd), ("onedrive_login", onedrive_login), ("onedrivelogin", onedrive_login), ("onedrive_finish", onedrive_finish)]:
         app.add_handler(CommandHandler(cmd, fn))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu_"))
     app.add_handler(flash_conv)
