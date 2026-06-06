@@ -637,13 +637,22 @@ except Exception as e:
     respuesta = f"✅ *FOTO REGISTRADA CORRECTAMENTE*\n━━━━━━━━━━━━━━━━━━━━━━\n\n🆔 ID: `{data['id']}`\n📅 Fecha: `{data['fecha_hora']}`\n👷 Usuario: {data['usuario_label']}\n🏗️ Pique: {data['pique']}\n📍 Frente: {data['frente']}\n"
     if data.get("marco"): respuesta += f"🔢 Marco: {data['marco']}\n"
     if data.get("etapa"): respuesta += f"🏷️ Etapa: {data['etapa']}\n"
-    respuesta += f"📝 Comentario: {data['comentario']}\n\n📄 Archivo:\n`{nombre}`\n\n{onedrive_msg}"
-    context.user_data.clear()
-target = update.message if update.message else update.callback_query.message
-await target.reply_text(respuesta, parse_mode="Markdown")
-context.user_data.clear()
-    return ConversationHandler.END
+respuesta += f"📝 Comentario: {data['comentario']}\n\n📄 Archivo:\n`{nombre}`\n\n{onedrive_msg}"
 
+target = (
+    update.message
+    if update.message
+    else update.callback_query.message
+)
+
+await target.reply_text(
+    respuesta,
+    parse_mode="Markdown"
+)
+
+context.user_data.clear()
+
+return ConversationHandler.END
 async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear(); user = update.message.from_user; now = now_chile()
     context.user_data["flash"] = {"id":now.strftime("%Y%m%d%H%M%S"),"fecha":now.strftime("%Y-%m-%d"),"hora":now.strftime("%H:%M:%S"),"fecha_hora":now.strftime("%Y-%m-%d %H:%M:%S"),"inspector":get_user_label(user),"usuario_id":str(user.id) if user else "","pique":"","frente":"","evento":"","detalle":"","foto":"","foto_path":"","estado":"Emitido"}
