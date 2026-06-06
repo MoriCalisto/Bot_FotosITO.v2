@@ -608,20 +608,19 @@ try:
     ensure_saved(local_path)
 
 except Exception as e:
-target = (
-    update.message
-    if update.message
-    else update.callback_query.message
-)
+    context.user_data.clear()
 
-await target.reply_text(
-    respuesta,
-    parse_mode="Markdown"
-)
+    target = (
+        update.message
+        if update.message
+        else update.callback_query.message
+    )
 
-context.user_data.clear()
+    await target.reply_text(
+        f"❌ Error descargando/guardando la foto:\n{e}"
+    )
 
-return ConversationHandler.END
+    return ConversationHandler.END
     onedrive_msg = ""
     try:
         data["ruta_onedrive"] = upload_to_onedrive(local_path, make_onedrive_photo_folder(data), nombre); onedrive_msg = "☁️ Foto subida a OneDrive."
