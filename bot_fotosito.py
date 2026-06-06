@@ -352,7 +352,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
-        "🚇 *BOT FOTOS ITO + REPORTES FLASH EL6*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🤖 *Inspector Digital EL6*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "Sistema operativo para registrar evidencia en terreno, emitir alertas críticas y respaldar información en OneDrive.\n\n"
         "🧭 *MENÚ PRINCIPAL*\n/menu → abre botones interactivos del sistema\n\n"
         "📸 *REGISTRO DE FOTOS*\nEnvía una foto directamente al bot. El bot pedirá Pique, Frente, N° Marco o Etapa cuando corresponda y Comentario opcional.\n\n"
