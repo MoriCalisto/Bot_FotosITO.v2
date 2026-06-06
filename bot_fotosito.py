@@ -666,11 +666,16 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else update.callback_query.message
     )
 
+try:
     await target.reply_text(
         respuesta,
         parse_mode="Markdown"
     )
-
+except Exception as e:
+    await target.reply_text(
+        f"⚠️ Foto guardada correctamente.\n\n"
+        f"Error mostrando resumen:\n{e}"
+    )
     context.user_data.clear()
 
     return ConversationHandler.END
