@@ -603,13 +603,23 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = make_photo_filename(data); data["archivo"] = nombre
     local_folder = os.path.join(PHOTO_SAVE_ROOT, clean_filename(data["pique"]), clean_filename(data["frente"])); os.makedirs(local_folder, exist_ok=True)
     local_path = os.path.join(local_folder, nombre)
-    try:
-        await data["file"].download_to_drive(local_path)
-        ensure_saved(local_path)
-    except Exception as e:
+try:
+    await data["file"].download_to_drive(local_path)
+    ensure_saved(local_path)
+
+except Exception as e:
     context.user_data.clear()
-    target = update.message if update.message else update.callback_query.message
-    await target.reply_text(f"❌ Error descargando/guardando la foto:\n{e}")
+
+    target = (
+        update.message
+        if update.message
+        else update.callback_query.message
+    )
+
+    await target.reply_text(
+        f"❌ Error descargando/guardando la foto:\n{e}"
+    )
+
     return ConversationHandler.END
     onedrive_msg = ""
     try:
