@@ -610,15 +610,28 @@ async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return FLASH_PIQUE
 
 async def flash_pique(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    if "flash" not in context.user_data: await q.edit_message_text("⚠️ No encuentro el informe Flash pendiente. Usa /flash nuevamente."); return ConversationHandler.END
-    _, pique = q.data.split("|", 1); context.user_data["flash"]["pique"] = pique
+    q = update.callback_query
+    await q.answer()
+
+    if "flash" not in context.user_data:
+        await q.edit_message_text(
+            "⚠️ No encuentro el informe Flash pendiente. Usa /flash nuevamente."
+        )
+        return ConversationHandler.END
+
+    _, pique = q.data.split("|", 1)
+    context.user_data["flash"]["pique"] = pique
+
     frentes = frentes_por_pique(pique)
 
-await q.edit_message_text(
-    f"🏗️ Pique seleccionado: {pique}\n\nPaso 2 de 5\nSelecciona el FRENTE:",
-    reply_markup=build_keyboard(frentes, "flash_frente", cols=2)
-)
+    await q.edit_message_text(
+        f"🏗️ Pique seleccionado: {pique}\n\n"
+        f"Paso 2 de 5\n"
+        f"Selecciona el *FRENTE*:",
+        reply_markup=build_keyboard(frentes, "flash_frente", cols=2),
+        parse_mode="Markdown"
+    )
+
     return FLASH_FRENTE
 
 async def flash_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
