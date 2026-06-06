@@ -667,10 +667,11 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 try:
-    await target.reply_text(
-        respuesta,
-        parse_mode="Markdown"
-    )
+
+try:
+    await target.reply_text(respuesta)
+except Exception as e:
+    log.error(f"ERROR RESPUESTA FOTO: {e}")
 except Exception as e:
     await target.reply_text(
         f"⚠️ Foto guardada correctamente.\n\n"
