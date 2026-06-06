@@ -603,7 +603,14 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = make_photo_filename(data); data["archivo"] = nombre
     local_folder = os.path.join(PHOTO_SAVE_ROOT, clean_filename(data["pique"]), clean_filename(data["frente"])); os.makedirs(local_folder, exist_ok=True)
     local_path = os.path.join(local_folder, nombre)
-    await data["file"].download_to_drive(local_path); ensure_saved(local_path)
+    try:
+    await data["file"].download_to_drive(local_path)
+    ensure_saved(local_path)
+except Exception as e:
+    context.user_data.clear()
+    target = update.message if update.message else update.callback_query.message
+    await target.reply_text(f"❌ Error descargando/guardando la foto:\n{e}")
+    return ConversationHandler.END
     onedrive_msg = ""
     try:
         data["ruta_onedrive"] = upload_to_onedrive(local_path, make_onedrive_photo_folder(data), nombre); onedrive_msg = "☁️ Foto subida a OneDrive."
@@ -622,8 +629,9 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.get("etapa"): respuesta += f"🏷️ Etapa: {data['etapa']}\n"
     respuesta += f"📝 Comentario: {data['comentario']}\n\n📄 Archivo:\n`{nombre}`\n\n{onedrive_msg}"
     context.user_data.clear()
-    target = update.message if update.message else update.callback_query.message
-    await target.reply_text(respuesta, parse_mode="Markdown")
+target = update.message if update.message else update.callback_query.message
+await target.reply_text(respuesta, parse_mode="Markdown")
+context.user_data.clear()
     return ConversationHandler.END
 
 async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
