@@ -334,7 +334,19 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "menu_photo":
         await q.message.reply_text("📸 *REGISTRO DE FOTO*\n\nEnvía una foto directamente a este chat y el bot iniciará el formulario de metadata.", parse_mode="Markdown")
     elif q.data == "menu_flash":
-        await q.message.reply_text("🚨 Para emitir un Reporte Flash usa el comando: /flash")
+        await q.message.reply_text(
+            "🚨 REPORTE FLASH EL6\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Úsalo para eventos críticos:\n"
+            "⚠️ Desprendimientos\n"
+            "💧 Inundación\n"
+            "⛏️ Sobreexcavación\n"
+            "⏱️ Tiempo Frente Abierta\n"
+            "🧱 Falta Alzaprima\n"
+            "🚧 No aplicación de 5cm\n"
+            "➕ Otro\n\n"
+            "Para iniciar usa: /flash"
+        )
     elif q.data == "menu_dashboard":
         await dashboard_cmd(update, context)
     elif q.data == "menu_stats":
@@ -519,6 +531,7 @@ async def onedrive_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/onedrive_finish\n\n"
         f"{flow['message']}"
     )
+
 async def onedrive_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in PENDING_ONEDRIVE_FLOWS:
@@ -610,7 +623,6 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clean_filename(data["pique"]),
         clean_filename(data["frente"])
     )
-
     os.makedirs(local_folder, exist_ok=True)
 
     local_path = os.path.join(local_folder, nombre)
@@ -618,36 +630,45 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await data["file"].download_to_drive(local_path)
         ensure_saved(local_path)
-
     except Exception as e:
         context.user_data.clear()
-
-        target = (
-            update.message
-            if update.message
-            else update.callback_query.message
-        )
-
-        await target.reply_text(
-            f"❌ Error descargando/guardando la foto:\n{e}"
-        )
-
+        target = update.message if update.message else update.callback_query.message
+        await target.reply_text(f"❌ Error descargando/guardando la foto:\n{e}")
         return ConversationHandler.END
 
     onedrive_msg = ""
+
     try:
-        data["ruta_onedrive"] = upload_to_onedrive(local_path, make_onedrive_photo_folder(data), nombre); onedrive_msg = "☁️ Foto subida a OneDrive."
+        data["ruta_onedrive"] = upload_to_onedrive(
+            local_path,
+            make_onedrive_photo_folder(data),
+            nombre
+        )
+        onedrive_msg = "☁️ Foto subida a OneDrive."
     except Exception as e:
-        data["ruta_onedrive"] = ""; onedrive_msg = f"⚠️ Foto guardada localmente, pero no se pudo subir a OneDrive:\n{e}"
+        data["ruta_onedrive"] = ""
+        onedrive_msg = f"⚠️ Foto guardada localmente, pero no se pudo subir a OneDrive:\n{e}"
+
     try:
         guardar_photo_metadata(data)
         try:
-            upload_to_onedrive(PHOTO_XLSX, "Registros", "Registro_Fotos.xlsx"); onedrive_msg += "\n☁️ Registro_Fotos.xlsx actualizado en OneDrive."
+            upload_to_onedrive(PHOTO_XLSX, "Registros", "Registro_Fotos.xlsx")
+            onedrive_msg += "\n☁️ Registro_Fotos.xlsx actualizado en OneDrive."
         except Exception as e:
             onedrive_msg += f"\n⚠️ Metadata guardada localmente, pero no se pudo subir a OneDrive:\n{e}"
     except Exception as e:
         onedrive_msg += f"\n❌ Error guardando metadata:\n{e}"
-    respuesta = f"✅ *FOTO REGISTRADA CORRECTAMENTE*\n━━━━━━━━━━━━━━━━━━━━━━\n\n🆔 ID: `{data['id']}`\n📅 Fecha: `{data['fecha_hora']}`\n👷 Usuario: {data['usuario_label']}\n🏗️ Pique: {data['pique']}\n📍 Frente: {data['frente']}\n"
+
+    respuesta = (
+        "✅ FOTO REGISTRADA CORRECTAMENTE\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🆔 ID: {data['id']}\n"
+        f"📅 Fecha: {data['fecha_hora']}\n"
+        f"👷 Usuario: {data['usuario_label']}\n"
+        f"🏗️ Pique: {data['pique']}\n"
+        f"📍 Frente: {data['frente']}\n"
+    )
+
     if data.get("marco"):
         respuesta += f"🔢 Marco: {data['marco']}\n"
 
@@ -655,31 +676,28 @@ async def finalizar_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         respuesta += f"🏷️ Etapa: {data['etapa']}\n"
 
     respuesta += (
-        f"📝 Comentario: {data['comentario']}\n\n"
-        f"📄 Archivo:\n`{nombre}`\n\n"
+        f"📝 Comentario: {data.get('comentario', '')}\n\n"
+        f"📄 Archivo:\n{nombre}\n\n"
         f"{onedrive_msg}"
     )
 
-    target = (
-        update.message
-        if update.message
-        else update.callback_query.message
-    )
+    target = update.message if update.message else update.callback_query.message
 
-try:
+    try:
+        await target.reply_text(respuesta)
+    except Exception as e:
+        log.error(f"ERROR RESPUESTA FOTO: {e}")
+        try:
+            await target.reply_text(
+                "✅ Foto guardada correctamente.\n"
+                "⚠️ No se pudo mostrar el resumen completo."
+            )
+        except Exception:
+            pass
 
-try:
-    await target.reply_text(respuesta)
-except Exception as e:
-    log.error(f"ERROR RESPUESTA FOTO: {e}")
-except Exception as e:
-    await target.reply_text(
-        f"⚠️ Foto guardada correctamente.\n\n"
-        f"Error mostrando resumen:\n{e}"
-    )
     context.user_data.clear()
-
     return ConversationHandler.END
+
 async def flash_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear(); user = update.message.from_user; now = now_chile()
     context.user_data["flash"] = {"id":now.strftime("%Y%m%d%H%M%S"),"fecha":now.strftime("%Y-%m-%d"),"hora":now.strftime("%H:%M:%S"),"fecha_hora":now.strftime("%Y-%m-%d %H:%M:%S"),"inspector":get_user_label(user),"usuario_id":str(user.id) if user else "","pique":"","frente":"","evento":"","detalle":"","foto":"","foto_path":"","estado":"Emitido"}
