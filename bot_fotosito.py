@@ -70,7 +70,7 @@ FRENTES_LOE = ["TIE Oriente", "TIE Poniente", "Superficie", "Pique", "TEA", "TEB
 FRENTES_RS = ["Pique", "Superficie"]
 
 FLASH_PIQUE, FLASH_FRENTE, FLASH_EVENTO, FLASH_DETALLE, FLASH_FOTO = range(10, 15)
-FLASH_PIQUES = ["Túnel Enlace", "Bremen", "Talleres", "Lo Errázuriz", "Román Salinas", "VEE", "Otros"]
+FLASH_PIQUES = PHOTO_PIQUES
 FLASH_FRENTES = ["TIE Oriente", "TIE Poniente", "Galería Oriente", "Galería Poniente", "TEA", "TEB", "TEC", "Tramo B", "Tramo C", "Superficie", "Pique", "Otro"]
 EVENTOS_FLASH = ["Desprendimientos", "Inundación", "Sobreexcavación", "Tiempo Frente Abierta", "Falta Alzaprima", "No aplicación de 5cm", "Otro"]
 
@@ -357,6 +357,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧭 *MENÚ PRINCIPAL*\n/menu → abre botones interactivos del sistema\n\n"
         "📸 *REGISTRO DE FOTOS*\nEnvía una foto directamente al bot. El bot pedirá Pique, Frente, N° Marco o Etapa cuando corresponda y Comentario opcional.\n\n"
         "🚨 *INFORME FLASH*\n/flash → emitir evento crítico.\n\n"
+        "⚠️ Desprendimientos\n"
+        "💧 Inundación\n"
+        "⛏️ Sobreexcavación\n"
+        "⏱️ Tiempo Frente Abierta\n"
+        "🧱 Falta Alzaprima\n"
+        "🚧 No aplicación de 5cm\n"
+        "➕ Otro\n\n"
         "📊 *CONTROL Y CONSULTAS*\n/dashboard → resumen rápido del día\n/estadisticas → estadísticas últimos 7 días\n/buscar texto → buscar fotos por MR, pique, frente o comentario\n/flashs → últimos reportes Flash\n/usuarios → ranking de usuarios\n\n"
         "🧪 *OPERACIÓN Y SOPORTE*\n/status → estado del bot\n/testgrupo → prueba envío al grupo configurado\n/idchat → obtiene ID del chat o grupo\n/cancel → cancela el flujo actual\n/reset → limpia flujo pendiente\n\n"
         "🔐 *ONEDRIVE*\n/onedrive_login → iniciar autorización\n/onedrive_finish → finalizar autorización\n\n"
@@ -606,7 +613,12 @@ async def flash_pique(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     if "flash" not in context.user_data: await q.edit_message_text("⚠️ No encuentro el informe Flash pendiente. Usa /flash nuevamente."); return ConversationHandler.END
     _, pique = q.data.split("|", 1); context.user_data["flash"]["pique"] = pique
-    await q.edit_message_text(f"🏗️ Pique seleccionado: {pique}\n\nPaso 2 de 5\nSelecciona el FRENTE:", reply_markup=build_keyboard(FLASH_FRENTES, "flash_frente", cols=2))
+    frentes = frentes_por_pique(pique)
+
+await q.edit_message_text(
+    f"🏗️ Pique seleccionado: {pique}\n\nPaso 2 de 5\nSelecciona el FRENTE:",
+    reply_markup=build_keyboard(frentes, "flash_frente", cols=2)
+)
     return FLASH_FRENTE
 
 async def flash_frente(update: Update, context: ContextTypes.DEFAULT_TYPE):
